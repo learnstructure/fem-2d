@@ -29,3 +29,22 @@ class TrussElement(ElementBase):
         c = self.cos
         s = self.sin
         return np.array([[c, s, 0, 0], [-s, c, 0, 0], [0, 0, c, s], [0, 0, -s, c]])
+
+    def deformed_shape_points(self, global_disp, n_points=2, scale=1.0):
+        """
+        For a truss, just return the two displaced end points.
+        """
+        u_i = global_disp[self.node_i.dofs]
+        u_j = global_disp[self.node_j.dofs]
+
+        # Original coordinates
+        x_i, y_i = self.node_i.x, self.node_i.y
+        x_j, y_j = self.node_j.x, self.node_j.y
+
+        # Displaced coordinates
+        x_i_def = x_i + scale * u_i[0]
+        y_i_def = y_i + scale * u_i[1]
+        x_j_def = x_j + scale * u_j[0]
+        y_j_def = y_j + scale * u_j[1]
+
+        return [(x_i_def, y_i_def), (x_j_def, y_j_def)]

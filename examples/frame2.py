@@ -1,5 +1,15 @@
 import numpy as np
-from fem2d import Structure, Node, ElasticMaterial, Section, BeamElement, Results
+from fem2d import (
+    Structure,
+    Node,
+    ElasticMaterial,
+    Section,
+    BeamElement,
+    Results,
+    DrawStructure,
+)
+
+import matplotlib.pyplot as plt
 
 # ------------------------------------------------------------
 # Units: kips, inches
@@ -53,15 +63,20 @@ for node in [node1, node2, node3, node4]:
     disp = structure.disp[node.dofs]
     print(f"Node {node.id}: {disp}")
 
-print("\nReactions (Fx, Fy, Mz):")
-for node in [node1, node4]:
-    reactions = structure.reactions[node.dofs]
-    print(f"Node {node.id}: {reactions}")
+# print("\nReactions (Fx, Fy, Mz):")
+# for node in [node1, node4]:
+#     reactions = structure.reactions[node.dofs]
+#     print(f"Node {node.id}: {reactions}")
 
-# 9. Element forces (optional)
-results = Results(structure)
-print("\nElement End Forces (local):")
-for elem in [elem1, elem2, elem3]:
-    forces = results.element_forces(elem)
-    print(f"Element {elem.id} (i-end): {forces[:3]}")
-    print(f"          (j-end): {forces[3:]}")
+# # 9. Element forces (optional)
+# results = Results(structure)
+# print("\nElement End Forces (local):")
+# for elem in [elem1, elem2, elem3]:
+#     forces = results.element_forces(elem)
+#     print(f"Element {elem.id} (i-end): {forces[:3]}")
+#     print(f"          (j-end): {forces[3:]}")
+
+drawer = DrawStructure(
+    structure, scale=100
+)  # scale displacements by 100 for visibility
+drawer.draw()

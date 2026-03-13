@@ -11,5 +11,16 @@ from .materials import ElasticMaterial
 from .sections import Section
 from .results import Results
 from .elements.beam import BeamElement
+from .utils.simple_frame import SimpleFrame
+from .utils.draw_structure import DrawStructure
 
-__all__ = ["Structure", "Node", "ElasticMaterial", "Section", "Results", "BeamElement"]
+__all__ = [
+    "Structure",
+    "Node",
+    "ElasticMaterial",
+    "Section",
+    "Results",
+    "BeamElement",
+    "SimpleFrame",
+    "DrawStructure",
+]
