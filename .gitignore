@@ -1,0 +1,32 @@
+# Ignore Python cache files
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Ignore virtual environments
+venv/
+.env/
+
+# Ignore setuptools build artifacts
+*.egg-info/
+dist/
+build/
+
+# Ignore Jupyter Notebook checkpoints
+.ipynb_checkpoints/
+
+# Ignore system files
+.DS_Store
+Thumbs.db
+
+sharing/
+extra/
+trash/
+
+README.pdf
+readme.pdf
+paper.pdf
+
+docs/build/
+docs/source/api/

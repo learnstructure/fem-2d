@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "fem2d"
+version = "0.1.0"
+description = "A 2D frame analysis library based on the matrix method"
+authors = [{name = "Abinash Mandal", email = "abinashmandal33486@gmail.com"}]
+license = {text = "MIT"}
+readme = "README.md"
+requires-python = ">=3.8"
+dependencies = [
+    "numpy",
+]
+
+[project.optional-dependencies]
+dev = ["pytest", "black", "flake8"]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["fem2d*"]  # finds the fem2d package
