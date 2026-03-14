@@ -1,3 +1,4 @@
+from fem2d.elements.truss import TrussElement
 from fem2d.nodes import Node
 from fem2d.materials import ElasticMaterial
 from fem2d.sections import Section
@@ -22,6 +23,14 @@ class SimpleFrame:
         material = ElasticMaterial(E)
         section = Section(A, I)
         elem = BeamElement(id, node_i, node_j, material, A, I)
+        self.structure.add_element(elem)
+
+    def add_truss(self, id, node_i_id, node_j_id, E, A):
+        node_i = self.structure.nodes[node_i_id]
+        node_j = self.structure.nodes[node_j_id]
+        material = ElasticMaterial(E)
+        # section = Section(A, I)
+        elem = TrussElement(id, node_i, node_j, material, A)
         self.structure.add_element(elem)
 
     def add_support(self, node_id, fixity):

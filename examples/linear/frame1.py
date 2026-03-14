@@ -35,21 +35,7 @@ node2.set_load(fx=0, fy=0, mz=-300)
 # 7. Solve
 structure.solve()
 
-# 8. Print results
-print("Node Displacements (ux, uy, rz):")
-for node in [node1, node2, node3]:
-    disp = structure.disp[node.dofs]
-    print(f"Node {node.id}: {disp}")
-
-print("\nReactions (Fx, Fy, Mz):")
-for node in [node1, node3]:
-    reactions = structure.reactions[node.dofs]
-    print(f"Node {node.id}: {reactions}")
-
-# Optional: Use Results class to get element forces
 results = Results(structure)
-print("\nElement End Forces (local):")
-for elem in [elem1, elem2]:
-    forces = results.element_forces(elem)
-    print(f"Element {elem.id} (i-end): {forces[:3]}")
-    print(f"          (j-end): {forces[3:]}")
+print("Node Displacements:\n", results.node_displacements())
+print("Reactions:\n", results.reactions())
+print("Element Forces:\n", results.element_forces())

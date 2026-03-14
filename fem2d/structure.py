@@ -1,5 +1,8 @@
 import numpy as np
+
+from fem2d.elements.beam import BeamElement
 from .loads import DistributedLoad
+from .solver import NewtonRaphsonSolver
 
 
 class Structure:
@@ -16,6 +19,7 @@ class Structure:
         self.nodes[node.id] = node
 
     def add_element(self, element):
+        element.structure = self
         self.elements[element.id] = element
 
     def add_load(self, load):
@@ -54,6 +58,7 @@ class Structure:
 
     def apply_boundary_conditions(self):
         """Determine free and fixed DOFs, partition matrices."""
+        self._auto_fix_rotations()  # ensure rotations are fixed at truss-only nodes
         fixed = []
         free = []
         for node in self.nodes.values():
@@ -62,8 +67,27 @@ class Structure:
                     fixed.append(node.dofs[i])
                 else:
                     free.append(node.dofs[i])
+
         self.fixed_dofs = fixed
         self.free_dofs = free
+
+    def _auto_fix_rotations(self):
+        """Automatically fix rotational DOF at nodes that have only truss elements."""
+        # First, identify nodes that have at least one beam element
+        nodes_with_beam = set()
+        for el in self.elements.values():
+            # Check if element is a beam (you need a way to identify element type)
+            if hasattr(el, "inertia") or isinstance(
+                el, BeamElement
+            ):  # adjust as needed
+                nodes_with_beam.add(el.node_i)
+                nodes_with_beam.add(el.node_j)
+
+        # For all other nodes, set rotation as fixed
+        for node in self.nodes.values():
+            if node not in nodes_with_beam:
+                # Override user's setting for rotational DOF
+                node.support[2] = True  # fix rotation
 
     def solve(self):
         self.number_dofs()
@@ -87,3 +111,36 @@ class Structure:
                 @ self.disp[self.free_dofs]
                 - self.F[self.fixed_dofs]
             )
+
+    def solve_nonlinear(self, tolerance=1e-8, max_iter=30):
+        """
+        Perform geometrically nonlinear analysis using Newton‑Raphson.
+        Assumes all elements implement the nonlinear interface
+        (update_state, get_tangent_stiffness, get_internal_forces).
+        """
+        # Ensure DOFs are numbered and boundary conditions are known
+        self.number_dofs()
+        self.apply_boundary_conditions()
+        # Assemble external load vector from nodal and element loads
+        self.assemble_loads()
+        P_ext = self.F.copy()  # external loads (full vector)
+
+        # Create solver and run
+        from .solver import NewtonRaphsonSolver  # adjust import as needed
+
+        solver = NewtonRaphsonSolver(self, tolerance, max_iter)
+        self.disp = solver.solve(P_ext)
+
+        # Compute reactions after convergence
+        self._compute_reactions_nonlinear()
+
+    def _compute_reactions_nonlinear(self):
+        """Assemble internal forces at fixed DOFs to obtain reactions."""
+        # Sum internal forces from all elements
+        f_int = np.zeros(self.neq)
+        for el in self.elements.values():
+            dofs = el.node_i.dofs + el.node_j.dofs
+            f_int[dofs] += el.get_internal_forces()
+        self.reactions = np.zeros(self.neq)
+        if self.fixed_dofs:
+            self.reactions[self.fixed_dofs] = f_int[self.fixed_dofs]

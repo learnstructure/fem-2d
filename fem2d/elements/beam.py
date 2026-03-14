@@ -42,6 +42,19 @@ class BeamElement(ElementBase):
             return np.array([0, w * L / 2, w * L**2 / 12, 0, w * L / 2, -w * L**2 / 12])
         return np.zeros(6)
 
+    def get_local_forces(self):
+        """Return local end forces as a 6‑component array."""
+        u_i = self.structure.disp[self.node_i.dofs]
+        u_j = self.structure.disp[self.node_j.dofs]
+        u_global = np.concatenate([u_i, u_j])
+        T = self.transformation_matrix()  # 6×6
+        u_local = T @ u_global
+        f_local = self.local_stiffness() @ u_local
+        # Subtract equivalent nodal loads if any (e.g., from distributed loads)
+        if hasattr(self, "eq_load") and self.eq_load is not None:
+            f_local -= self.eq_load
+        return f_local
+
     def deformed_shape_points(self, global_disp, n_points=20, scale=1.0):
         """
         Returns a list of (x, y) points in global coordinates representing

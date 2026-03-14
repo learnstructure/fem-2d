@@ -30,6 +30,28 @@ class TrussElement(ElementBase):
         s = self.sin
         return np.array([[c, s, 0, 0], [-s, c, 0, 0], [0, 0, c, s], [0, 0, -s, c]])
 
+    def get_local_forces(self):
+        """Return local end forces as a 6‑component array: [Fx_i, Fy_i, M_i, Fx_j, Fy_j, M_j]."""
+        # Get global displacements
+        u_i = self.structure.disp[self.node_i.dofs]  # [ux, uy, rz]
+        u_j = self.structure.disp[self.node_j.dofs]
+        u_global = np.concatenate([u_i, u_j])  # 6×1
+
+        # Transform to local (using 4×4 transformation for a truss)
+        T4 = self.transformation_matrix()  # 4×4
+        # Extract only translational DOFs from global (positions 0,1,3,4)
+        u_global_4 = u_global[[0, 1, 3, 4]]  # 4×1
+        u_local_4 = T4 @ u_global_4  # 4×1
+
+        # Compute local forces (4×1)
+        k_local_4 = self.local_stiffness()  # 4×4
+        f_local_4 = k_local_4 @ u_local_4
+
+        # Expand to 6×1 (insert zeros for moments)
+        f_local = np.zeros(6)
+        f_local[[0, 1, 3, 4]] = f_local_4
+        return f_local
+
     def deformed_shape_points(self, global_disp, n_points=2, scale=1.0):
         """
         For a truss, just return the two displaced end points.

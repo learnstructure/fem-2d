@@ -6,6 +6,7 @@ class ElementBase:
         self.id = eid
         self.node_i = node_i
         self.node_j = node_j
+        self.structure = None
         self._update_geometry()
 
     def _update_geometry(self):
