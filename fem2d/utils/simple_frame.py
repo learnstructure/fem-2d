@@ -4,6 +4,7 @@ from fem2d.materials import ElasticMaterial
 from fem2d.sections import Section
 from fem2d.elements import BeamElement
 from fem2d.structure import Structure
+from fem2d.loads import DistributedLoad
 
 
 class SimpleFrame:
@@ -40,6 +41,13 @@ class SimpleFrame:
     def add_node_load(self, node_id, load):
         node = self.structure.nodes[node_id]
         node.set_load(load[0], load[1], load[2])
+
+    def add_distributed_load(self, element_id, wx=0.0, wy=0.0):
+        """Add a uniformly distributed load to an element (local axes)."""
+        element = self.structure.elements[element_id]
+        load = DistributedLoad(element, wx, wy)
+        self.structure.add_load(load)
+        self.structure.add_load(load)
 
     def solve(self):
         self.structure.solve()

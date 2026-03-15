@@ -3,8 +3,18 @@ import pandas as pd
 
 
 class Results:
-    def __init__(self, structure):
-        self.structure = structure
+    def __init__(self, obj):
+        """
+        Parameters
+        ----------
+        obj : Structure or SimpleFrame
+            The analysed structure (or the SimpleFrame wrapper).
+        """
+        # If obj is a SimpleFrame, extract the underlying Structure
+        if hasattr(obj, "structure") and hasattr(obj.structure, "nodes"):
+            self.structure = obj.structure
+        else:
+            self.structure = obj
 
     def node_displacements(self):
         """Return DataFrame with node displacements."""
@@ -36,12 +46,12 @@ class Results:
             data.append(
                 {
                     "element": el.id,
-                    "Fx_i": f_local[0],
-                    "Fy_i": f_local[1],
-                    "M_i": f_local[2],
-                    "Fx_j": f_local[3],
-                    "Fy_j": f_local[4],
-                    "M_j": f_local[5],
+                    "fx_i": f_local[0],
+                    "fy_i": f_local[1],
+                    "m_i": f_local[2],
+                    "fx_j": f_local[3],
+                    "fy_j": f_local[4],
+                    "m_j": f_local[5],
                 }
             )
         return pd.DataFrame(data)

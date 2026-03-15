@@ -52,7 +52,8 @@ class BeamElement(ElementBase):
         f_local = self.local_stiffness() @ u_local
         # Subtract equivalent nodal loads if any (e.g., from distributed loads)
         if hasattr(self, "eq_load") and self.eq_load is not None:
-            f_local -= self.eq_load
+            eq_load_local = T @ self.eq_load
+            f_local -= eq_load_local
         return f_local
 
     def deformed_shape_points(self, global_disp, n_points=20, scale=1.0):

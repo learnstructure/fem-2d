@@ -49,12 +49,10 @@ class Structure:
             if any(node.load):
                 self.F[node.dofs] += node.load
         # element loads (distributed, etc.)
-        for load in self.loads:
-            if isinstance(load, DistributedLoad):
-                eq = load.equivalent_nodal_loads()
-                dofs = load.element.node_i.dofs + load.element.node_j.dofs
-                self.F[dofs] += eq
-            # point loads already handled via node.load
+        for el in self.elements.values():
+            if hasattr(el, "eq_load") and el.eq_load is not None:
+                dofs = el.node_i.dofs + el.node_j.dofs
+                self.F[dofs] += el.eq_load
 
     def apply_boundary_conditions(self):
         """Determine free and fixed DOFs, partition matrices."""
