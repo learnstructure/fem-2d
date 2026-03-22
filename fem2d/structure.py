@@ -1,6 +1,7 @@
 import numpy as np
 
 from fem2d.elements.beam import BeamElement
+from fem2d.elements.spring import SpringElement
 from .loads import DistributedLoad
 from .solver import NewtonRaphsonSolver
 
@@ -56,7 +57,7 @@ class Structure:
 
     def apply_boundary_conditions(self):
         """Determine free and fixed DOFs, partition matrices."""
-        self._auto_fix_rotations()  # ensure rotations are fixed at truss-only nodes
+        self._auto_fix_unstable_dofs()  # ensure rotations are fixed at truss-only nodes
         fixed = []
         free = []
         for node in self.nodes.values():
@@ -69,23 +70,30 @@ class Structure:
         self.fixed_dofs = fixed
         self.free_dofs = free
 
-    def _auto_fix_rotations(self):
-        """Automatically fix rotational DOF at nodes that have only truss elements."""
-        # First, identify nodes that have at least one beam element
-        nodes_with_beam = set()
-        for el in self.elements.values():
-            # Check if element is a beam (you need a way to identify element type)
-            if hasattr(el, "inertia") or isinstance(
-                el, BeamElement
-            ):  # adjust as needed
-                nodes_with_beam.add(el.node_i)
-                nodes_with_beam.add(el.node_j)
-
-        # For all other nodes, set rotation as fixed
+    def _auto_fix_unstable_dofs(self):
+        """Automatically fix DOFs at nodes connected only to certain element types."""
         for node in self.nodes.values():
-            if node not in nodes_with_beam:
-                # Override user's setting for rotational DOF
-                node.support[2] = True  # fix rotation
+            connected_elements = [
+                el for el in self.elements.values() if node in (el.node_i, el.node_j)
+            ]
+
+            is_beam_connected = any(
+                isinstance(el, BeamElement) for el in connected_elements
+            )
+            if is_beam_connected:
+                continue
+
+            is_spring_only = all(
+                isinstance(el, SpringElement) for el in connected_elements
+            )
+
+            if is_spring_only and connected_elements:
+                # Fix rotation and perpendicular force for spring-only nodes
+                node.support[1] = True  # Fix perpendicular force
+                node.support[2] = True  # Fix rotation
+            else:
+                # Fix rotation for truss-only nodes (original logic)
+                node.support[2] = True
 
     def solve(self):
         self.number_dofs()

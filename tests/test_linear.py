@@ -195,3 +195,103 @@ def test_truss1():
     results = Results(frame.structure)
     assert abs((results.node_displacements())["uy"][2] - -0.01763668430335097) < 1e-9
     assert abs(results.element_forces()["fx_i"][0] - -2.0502645502645502) < 1e-9
+
+
+def test_beam_5_6():
+    # Example 5.6: Kassimali A. (2022), Matrix analysis of structures
+    # units in kN, m
+    frame = SimpleFrame()
+
+    frame.add_node(1, 0, 0)
+    frame.add_node(2, 4, 0)
+    frame.add_node(3, 7, 0)
+    frame.add_node(4, 11, 0)
+
+    E = 200e6
+    I = 108e-6
+    A = 10
+
+    frame.add_frame(1, 1, 2, E=E, A=A, I=I)
+    frame.add_frame(2, 2, 3, E=E, A=A, I=I)
+    frame.add_frame(3, 3, 4, E=E, A=A, I=I)
+
+    frame.add_support(1, [1, 1, 1])
+    frame.add_support(2, [0, 1, 0])
+    frame.add_support(3, [0, 1, 0])
+    frame.add_support(4, [1, 1, 1])
+
+    frame.add_element_point_load(1, py=-150, x=2)
+    frame.add_distributed_load(3, wy=-37.5)
+    frame.solve()
+
+    results = Results(frame)
+    disp = results.node_displacements()
+    el_forces = results.element_forces()
+
+    assert abs(disp["theta"][1] - 0.0019290123456790125) < 1e-9
+    assert abs(el_forces["fy_i"][1] - 5.555555555555557) < 1e-9
+
+
+def test_spring_2_1():
+    # Example 2.1: Logan D. L. (2017), A First Course in the Finite Element Method
+    # units in pound, inches
+    frame = SimpleFrame()
+
+    frame.add_node(1, 0, 0)
+    frame.add_node(2, 1, 0)
+    frame.add_node(3, 2, 0)
+    frame.add_node(4, 3, 0)
+
+    k1, k2, k3 = 1000, 2000, 3000
+
+    frame.add_spring(1, 1, 2, k1)
+    frame.add_spring(2, 2, 3, k2)
+    frame.add_spring(3, 3, 4, k3)
+
+    frame.add_support(1, [1, 1, 1])
+    frame.add_support(4, [1, 1, 1])
+
+    frame.add_node_load(3, [5000, 0, 0])
+
+    frame.solve()
+
+    results = Results(frame)
+    disp = results.node_displacements()
+    el_forces = results.element_forces()
+
+    assert abs(disp["ux"][1] - 0.9090909090909091) < 1e-9
+    assert abs(el_forces["fx_i"][1] - -909.090909090909) < 1e-9
+
+
+def test_beam_spring():
+    # Example 4.3: Logan D. L. (2022), A First Course in the Finite Element Method
+    # units in kips, inches
+    frame = SimpleFrame()
+
+    frame.add_node(1, 0, 0)
+    frame.add_node(2, 3, 0)
+    frame.add_node(3, 6, 0)
+    frame.add_node(4, 6, -1)
+
+    E = 210e6
+    I = 2e-4
+    A = 100
+
+    frame.add_frame(1, 1, 2, E=E, A=A, I=I)
+    frame.add_frame(2, 2, 3, E=E, A=A, I=I)
+    frame.add_spring(3, 3, 4, 200)
+
+    frame.add_support(1, [1, 1, 1])
+    frame.add_support(2, [0, 1, 0])
+    frame.add_support(4, [1, 1, 1])
+
+    frame.add_node_load(3, [0, -50, 0])  # point load
+
+    frame.solve()
+
+    results = Results(frame)
+    disp = results.node_displacements()
+    el_forces = results.element_forces()
+
+    assert abs(disp["uy"][2] - -0.017441860465116272) < 1e-9
+    assert abs(el_forces["m_i"][1] - 139.53488372093017) < 1e-9

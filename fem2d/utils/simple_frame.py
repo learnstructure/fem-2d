@@ -2,9 +2,9 @@ from fem2d.elements.truss import TrussElement
 from fem2d.nodes import Node
 from fem2d.materials import ElasticMaterial
 from fem2d.sections import Section
-from fem2d.elements import BeamElement
+from fem2d.elements import BeamElement, SpringElement
 from fem2d.structure import Structure
-from fem2d.loads import DistributedLoad
+from fem2d.loads import DistributedLoad, ElementPointLoad
 
 
 class SimpleFrame:
@@ -34,6 +34,12 @@ class SimpleFrame:
         elem = TrussElement(id, node_i, node_j, material, A)
         self.structure.add_element(elem)
 
+    def add_spring(self, id, node_i_id, node_j_id, stiffness):
+        node_i = self.structure.nodes[node_i_id]
+        node_j = self.structure.nodes[node_j_id]
+        elem = SpringElement(id, node_i, node_j, stiffness)
+        self.structure.add_element(elem)
+
     def add_support(self, node_id, fixity):
         node = self.structure.nodes[node_id]
         node.set_support(fixity[0], fixity[1], fixity[2])
@@ -47,6 +53,11 @@ class SimpleFrame:
         element = self.structure.elements[element_id]
         load = DistributedLoad(element, wx, wy)
         self.structure.add_load(load)
+
+    def add_element_point_load(self, element_id, px=0.0, py=0.0, mz=0.0, x=0.0):
+        """Add a uniformly distributed load to an element (local axes)."""
+        element = self.structure.elements[element_id]
+        load = ElementPointLoad(element, px, py, mz, x)
         self.structure.add_load(load)
 
     def solve(self):

@@ -1,11 +1,9 @@
+# Example 10.2: Kassimali A. (2022), Matrix analysis of structures
+# units in kN, m
+
 import numpy as np
 from fem2d import Structure, Node, ElasticMaterial, NewtonRaphsonSolver, TrussElementNL
 from fem2d.results import Results
-
-# -------------------------------------------------------------------
-# Example 10.2 – Geometrically nonlinear analysis of a plane truss
-# Units: kN, m
-# -------------------------------------------------------------------
 
 # 1. Create nodes
 node1 = Node(1, 0.0, 0.0)
@@ -44,24 +42,13 @@ node2.set_load(fx=0.0, fy=-2000.0, mz=0.0)
 structure.solve_nonlinear(tolerance=1e-8, max_iter=30)
 
 results = Results(structure)
-print("Node Displacements:\n", results.node_displacements())
-print("Reactions:\n", results.reactions())
-print("Element Forces:\n", results.element_forces())
+disp = results.node_displacements()
+reactions = results.reactions()
+el_forces = results.element_forces()
 
+print("Node Displacements:\n", disp)
+print("Reactions:\n", reactions)
+print("Element Forces:\n", el_forces)
 
-# # 8. Print results
-# print("\nConverged displacements (free DOFs):")
-# free_dofs = structure.free_dofs
-# for i, dof in enumerate(free_dofs):
-#     print(f"  DOF {dof+1}: {structure.disp[dof]:.6f} m")
-
-# print("\nMember forces (axial, compression positive):")
-# for el in structure.elements.values():
-#     # el.update_state(structure.disp)   # already updated during solver
-#     print(f"  Member {el.id}: Q = {el.Q:.1f} kN   (L_current = {el.L:.4f} m)")
-
-# print("\nReactions:")
-# for node in [node1, node3]:
-#     print(
-#         f"  Node {node.id}: Fx = {structure.reactions[node.dofs[0]]:8.2f} kN, Fy = {structure.reactions[node.dofs[1]]:8.2f} kN"
-#     )
+print(disp["uy"][1])  # result = -0.6499578914694384
+print(el_forces["fx_i"][2])  # result = -1768.7701456115713
