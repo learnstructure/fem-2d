@@ -1,4 +1,6 @@
-import numpy as np
+# Example 5.1: Logan D. L. (2017), A First Course in the Finite Element Method
+# units in kips, inches
+
 from fem2d import (
     Structure,
     Node,
@@ -10,10 +12,6 @@ from fem2d import (
 )
 
 import matplotlib.pyplot as plt
-
-# ------------------------------------------------------------
-# Units: kips, inches
-# ------------------------------------------------------------
 
 # 1. Create nodes
 node1 = Node(1, 0, 0)
@@ -58,25 +56,12 @@ node3.set_load(fx=0, fy=0, mz=5)  # moment at node 3
 structure.solve()
 
 # 8. Print results
-print("Node Displacements (ux, uy, rz):")
-for node in [node1, node2, node3, node4]:
-    disp = structure.disp[node.dofs]
-    print(f"Node {node.id}: {disp}")
+results = Results(structure)
+disp = results.node_displacements()
+reactions = results.reactions()
+el_forces = results.element_forces()
+print(disp["theta"][2])  # result = -0.0014859999862147104
+print(el_forces["m_i"][2])  # result = 226.19833955969983
 
-# print("\nReactions (Fx, Fy, Mz):")
-# for node in [node1, node4]:
-#     reactions = structure.reactions[node.dofs]
-#     print(f"Node {node.id}: {reactions}")
-
-# # 9. Element forces (optional)
-# results = Results(structure)
-# print("\nElement End Forces (local):")
-# for elem in [elem1, elem2, elem3]:
-#     forces = results.element_forces(elem)
-#     print(f"Element {elem.id} (i-end): {forces[:3]}")
-#     print(f"          (j-end): {forces[3:]}")
-
-drawer = DrawStructure(
-    structure, scale=100
-)  # scale displacements by 100 for visibility
+drawer = DrawStructure(structure, scale=100)
 drawer.draw()

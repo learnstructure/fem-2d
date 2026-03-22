@@ -1,3 +1,5 @@
+# Problem: Logan D. L. (2017), A First Course in the Finite Element Method
+# units in kips, inches
 from fem2d import SimpleFrame
 from fem2d.results import Results
 
@@ -21,10 +23,16 @@ frame.add_support(4, [1, 1, 1])
 
 frame.add_node_load(3, [5, -10, 0])
 
-disp, reactions = frame.solve()
-# print(disp)
+frame.solve()
 
 results = Results(frame.structure)
 print("Node Displacements:\n", results.node_displacements())
 print("Reactions:\n", results.reactions())
 print("Element Forces:\n", results.element_forces())
+
+print(
+    "Node 3 Displacement:\n", (results.node_displacements())["uy"][2]
+)  # result is -0.01763668430335097
+print(
+    "Element 2 Force:\n", results.element_forces()["fx_i"][0]
+)  # result is -2.0502645502645502

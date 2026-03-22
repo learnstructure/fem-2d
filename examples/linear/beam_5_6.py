@@ -1,5 +1,6 @@
-# Example 5.2: Logan D. L. (2017), A First Course in the Finite Element Method
-# units in kips, inches
+# Example 5.6: Kassimali A. (2022), Matrix analysis of structures
+# units in kN, m
+
 from fem2d import SimpleFrame
 from fem2d.results import Results
 

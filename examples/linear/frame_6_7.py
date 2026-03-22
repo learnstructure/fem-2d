@@ -1,5 +1,4 @@
 # Example 6.7: Kassimali A. (2022), Matrix analysis of structures
-
 # units in kN, m
 from fem2d import SimpleFrame, DrawStructure
 from fem2d.results import Results
