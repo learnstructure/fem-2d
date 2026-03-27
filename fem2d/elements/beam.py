@@ -3,11 +3,12 @@ import numpy as np
 
 
 class BeamElement(ElementBase):
-    def __init__(self, eid, node_i, node_j, material, area, inertia):
+    def __init__(self, eid, node_i, node_j, material, area, inertia, extra_mass=0.0):
         super().__init__(eid, node_i, node_j)
         self.material = material
         self.area = area
-        self.inertia = inertia
+        self.inertia = inertia  # Moment of inertia
+        self.extra_mass = extra_mass  # kg/m, additional distributed mass
 
     def local_stiffness(self):
         E = self.material.E
@@ -116,3 +117,70 @@ class BeamElement(ElementBase):
             points.append((x_def, y_def))
 
         return points
+
+    def mass_matrix(self):
+        """Return global mass matrix (6x6) for this element."""
+        L = self.length
+        A = self.area
+        I = self.inertia
+        rho = self.material.rho
+        extra = self.extra_mass
+
+        # Effective density for translational part: material + extra
+        rho_eff = rho + (extra / A) if A != 0 else rho
+
+        # ---- Translational mass (m1) ----
+        factor_trans = rho_eff * A * L / 420.0
+        m1 = np.zeros((6, 6))
+        m1[0, 0] = m1[3, 3] = 140.0 * factor_trans
+        m1[0, 3] = m1[3, 0] = 70.0 * factor_trans
+
+        m1[1, 1] = 156.0 * factor_trans
+        m1[1, 2] = 22.0 * L * factor_trans
+        m1[1, 4] = 54.0 * factor_trans
+        m1[1, 5] = -13.0 * L * factor_trans
+
+        m1[2, 1] = 22.0 * L * factor_trans
+        m1[2, 2] = 4.0 * L**2 * factor_trans
+        m1[2, 4] = 13.0 * L * factor_trans
+        m1[2, 5] = -3.0 * L**2 * factor_trans
+
+        m1[4, 1] = 54.0 * factor_trans
+        m1[4, 2] = 13.0 * L * factor_trans
+        m1[4, 4] = 156.0 * factor_trans
+        m1[4, 5] = -22.0 * L * factor_trans
+
+        m1[5, 1] = -13.0 * L * factor_trans
+        m1[5, 2] = -3.0 * L**2 * factor_trans
+        m1[5, 4] = -22.0 * L * factor_trans
+        m1[5, 5] = 4.0 * L**2 * factor_trans
+
+        # ---- Rotational mass (m2) ----
+        factor_rot = rho * I / (30.0 * L)
+        m2 = np.zeros((6, 6))
+        m2[1, 1] = 36.0 * factor_rot
+        m2[1, 2] = 3.0 * L * factor_rot
+        m2[1, 4] = -36.0 * factor_rot
+        m2[1, 5] = 3.0 * L * factor_rot
+
+        m2[2, 1] = 3.0 * L * factor_rot
+        m2[2, 2] = 4.0 * L**2 * factor_rot
+        m2[2, 4] = -3.0 * L * factor_rot
+        m2[2, 5] = -(L**2) * factor_rot
+
+        m2[4, 1] = -36.0 * factor_rot
+        m2[4, 2] = -3.0 * L * factor_rot
+        m2[4, 4] = 36.0 * factor_rot
+        m2[4, 5] = -3.0 * L * factor_rot
+
+        m2[5, 1] = 3.0 * L * factor_rot
+        m2[5, 2] = -(L**2) * factor_rot
+        m2[5, 4] = -3.0 * L * factor_rot
+        m2[5, 5] = 4.0 * L**2 * factor_rot
+
+        m_local = m1 + m2
+
+        # Transform to global
+        T = self.transformation_matrix()
+        m_global = T.T @ m_local @ T
+        return m_global

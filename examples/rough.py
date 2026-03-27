@@ -1,74 +1,145 @@
+# HW4 - Earthquake resistant design of structures
+
 import numpy as np
-from fem2d import Structure, Node, ElasticMaterial, Section, BeamElement
-from fem2d.loads import DistributedLoad
-from fem2d.results import Results
+import scipy.linalg as la
+from fem2d import Structure, Node, ElasticMaterial, BeamElement
+
+# units in kips-in
+# -------------------------------------------------------------------
+# Model parameters
+# -------------------------------------------------------------------
+width = 16 * 12  # bay width
+story_height = 10 * 12  # story height
+n_stories = 4
+
+# Material properties (steel)
+E = 6000
+
+# Section properties (example: HEA 300)
+A_beam = 20 * 35
+I_beam = 20 * 35**3 / 12
+
+A_column = 20 * 20
+I_column = 20 * 20**3 / 12
+
+# Extra mass on beams
+beam_extra_mass = 450 / (width * 386.4)  # 450 kips is total weight lumped at each floor
 
 # -------------------------------------------------------------------
-# Units: kN, m
+# Create nodes
 # -------------------------------------------------------------------
-
-# Create structure
+nodes = []
 structure = Structure()
 
-# Add nodes
-node1 = Node(1, 0.0, 0.0)
-node2 = Node(2, 0.0, 6.0)
-node3 = Node(3, 0.0, 12.0)
-node4 = Node(4, 9.0, 6.0)
-node5 = Node(5, 9.0, 0.0)
+# Bottom nodes (ground level)
+node_left_bottom = Node(1, 0.0, 0.0)
+node_right_bottom = Node(2, width, 0.0)
+structure.add_node(node_left_bottom)
+structure.add_node(node_right_bottom)
+nodes.append(node_left_bottom)
+nodes.append(node_right_bottom)
 
-structure.add_node(node1)
-structure.add_node(node2)
-structure.add_node(node3)
-structure.add_node(node4)
-structure.add_node(node5)
+# Create nodes for each story
+for story in range(1, n_stories + 1):
+    y = story * story_height
+    node_left = Node(2 * story + 1, 0.0, y)
+    node_right = Node(2 * story + 2, width, y)
+    structure.add_node(node_left)
+    structure.add_node(node_right)
+    nodes.append(node_left)
+    nodes.append(node_right)
 
-# Material and section properties
-E = 30e6
-A = 75e-3
-I = 4.8e-4
-
+# -------------------------------------------------------------------
+# Material
+# -------------------------------------------------------------------
 material = ElasticMaterial(E)
-section = Section(A, I)
 
-# Create beam elements
-elem1 = BeamElement(1, node1, node2, material, section.A, section.I)
-elem2 = BeamElement(2, node2, node3, material, section.A, section.I)
-elem3 = BeamElement(3, node3, node4, material, section.A, section.I)
-elem4 = BeamElement(4, node2, node4, material, section.A, section.I)
-elem5 = BeamElement(5, node4, node5, material, section.A, section.I)
+# -------------------------------------------------------------------
+# Elements: beams and columns
+# -------------------------------------------------------------------
+# Beams (horizontal) – one per story, connecting left and right nodes at same height
+for story in range(1, n_stories + 1):
+    left_node = nodes[2 * story]  # zero‑based: story1 -> nodes[2] and [3]
+    right_node = nodes[2 * story + 1]
+    beam = BeamElement(
+        story,
+        left_node,
+        right_node,
+        material,
+        A_beam,
+        I_beam,
+        extra_mass=beam_extra_mass,
+    )
+    structure.add_element(beam)
 
-structure.add_element(elem1)
-structure.add_element(elem2)
-structure.add_element(elem3)
-structure.add_element(elem4)
-structure.add_element(elem5)
+# Columns (vertical) – left and right columns
+# Left column: connect nodes at consecutive stories
+for story in range(n_stories):
+    bottom_node = nodes[2 * story]  # story 0: node 0 (index 0) – bottom left
+    top_node = nodes[2 * (story + 1)]  # story 1: node 2
+    col = BeamElement(
+        n_stories + story + 1, bottom_node, top_node, material, A_column, I_column
+    )
+    structure.add_element(col)
 
-# Supports: nodes 1 and 5 fully fixed
-node1.set_support(ux_fixed=True, uy_fixed=True, rz_fixed=True)
-node5.set_support(ux_fixed=True, uy_fixed=True, rz_fixed=True)
+# Right column
+for story in range(n_stories):
+    bottom_node = nodes[2 * story + 1]  # bottom right
+    top_node = nodes[2 * (story + 1) + 1]  # top right
+    col = BeamElement(
+        2 * n_stories + story + 1, bottom_node, top_node, material, A_column, I_column
+    )
+    structure.add_element(col)
 
-# Nodal loads: horizontal forces at nodes 2 and 3
-node2.set_load(fx=80.0, fy=0.0, mz=0.0)
-node3.set_load(fx=40.0, fy=0.0, mz=0.0)
+# -------------------------------------------------------------------
+# Supports: pin at bottom nodes (ux, uy fixed, rz free)
+# For a pinned base, we fix translations but allow rotation.
+# If you prefer fixed base, set rz_fixed=True as well.
+# -------------------------------------------------------------------
+node_left_bottom.set_support(ux_fixed=True, uy_fixed=True, rz_fixed=True)
+node_right_bottom.set_support(ux_fixed=True, uy_fixed=True, rz_fixed=True)
 
-# Distributed load on element 3 (from node 3 to node 4)
-udl = DistributedLoad(elem3, wy=12)
-structure.add_load(udl)
+# -------------------------------------------------------------------
+# Prepare matrices for eigenvalue analysis
+# -------------------------------------------------------------------
+structure.number_dofs()
+structure.apply_boundary_conditions()
+structure.assemble_stiffness()
+structure.assemble_mass_matrix()
 
-# Solve
-structure.solve()
+# Reduce to free degrees of freedom
+K_ff, M_ff = structure.get_reduced_matrices()
 
-# Post‑processing
-results = Results(structure)
-disp = results.node_displacements()
-reactions = results.reactions()
-el_forces = results.element_forces()
+print("Free DOFs:", structure.free_dofs)
+print("K_ff shape:", K_ff.shape)
+print("M_ff shape:", M_ff.shape)
 
-print("Node Displacements:\n", disp)
-print("\nReactions:\n", reactions)
-print("\nElement Forces:\n", el_forces)
+# -------------------------------------------------------------------
+# Solve eigenvalue problem: (K_ff - ω² M_ff) φ = 0
+# -------------------------------------------------------------------
+# Using scipy.linalg.eig (generalized eigenvalue problem)
+eigvals, eigvecs = la.eig(K_ff, M_ff)
 
-# Check specific values
-print("\nNode 3 rotation:", disp["theta"][2])
-print("Element 3 moment at i‑end:", el_forces["m_i"][2])
+# Extract real parts (should be positive real)
+omega = np.sqrt(np.real(eigvals))
+freqs = omega / (2 * np.pi)  # Hz
+
+# Sort in increasing order
+idx = np.argsort(omega)
+omega = omega[idx]
+freqs = freqs[idx]
+eigvecs = eigvecs[:, idx]
+T = 1 / freqs
+
+# Print first 5 frequencies
+# print("\nNatural frequencies (Hz):")
+# for i in range(min(5, len(freqs))):
+#     print(f"{i+1}: {freqs[i]:.3f} Hz")
+
+# Print first 5 time periods
+print("\n Time periods:")
+for i in range(min(5, len(T))):
+    print(f"{i+1}: {T[i]:.3f} s")
+
+# Optional: print mode shapes (for verification)
+# print("\nFirst mode shape (free DOFs):\n", eigvecs[:, 0])

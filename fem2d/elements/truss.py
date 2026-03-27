@@ -3,10 +3,11 @@ import numpy as np
 
 
 class TrussElement(ElementBase):
-    def __init__(self, eid, node_i, node_j, material, area):
+    def __init__(self, eid, node_i, node_j, material, area, extra_mass=0.0):
         super().__init__(eid, node_i, node_j)
         self.material = material
         self.area = area
+        self.extra_mass = extra_mass  # kg/m additional distributed mass
 
     def local_stiffness(self):
         k = self.area * self.material.E / self.length
@@ -70,3 +71,29 @@ class TrussElement(ElementBase):
         y_j_def = y_j + scale * u_j[1]
 
         return [(x_i_def, y_i_def), (x_j_def, y_j_def)]
+
+    def mass_matrix(self):
+        L = self.length
+        A = self.area
+        rho = self.material.rho
+        extra = self.extra_mass
+
+        total_mass = (rho * A + extra) * L
+        # Lumped at nodes: half at each node, translational only
+        m_local = np.zeros((4, 4))
+        m_local[0, 0] = m_local[1, 1] = m_local[2, 2] = m_local[3, 3] = total_mass / 2.0
+
+        # Expand to 6x6 (zero for rotational DOFs)
+        m_global = np.zeros((6, 6))
+        idx = [0, 1, 3, 4]  # mapping from local (4) to global (6) DOFs
+        for i, ii in enumerate(idx):
+            for j, jj in enumerate(idx):
+                m_global[ii, jj] = m_local[i, j]
+
+        # Transform to global orientation if needed (since truss can be rotated)
+        T4 = self.transformation_matrix()
+        T_full = np.zeros((6, 6))
+        T_full[0:2, 0:2] = T4[0:2, 0:2]
+        T_full[3:5, 3:5] = T4[2:4, 2:4]
+        m_global = T_full.T @ m_global @ T_full
+        return m_global

@@ -150,3 +150,43 @@ class Structure:
         self.reactions = np.zeros(self.neq)
         if self.fixed_dofs:
             self.reactions[self.fixed_dofs] = f_int[self.fixed_dofs]
+
+    def assemble_mass_matrix(self):
+        """Assemble the global mass matrix."""
+        if not hasattr(self, "neq"):
+            self.number_dofs()
+        self.M = np.zeros((self.neq, self.neq))
+
+        # Element contributions
+        for el in self.elements.values():
+            m_el = el.mass_matrix()
+            dofs = el.node_i.dofs + el.node_j.dofs
+            for i, ii in enumerate(dofs):
+                for j, jj in enumerate(dofs):
+                    self.M[ii, jj] += m_el[i, j]
+
+        # Node lumped masses
+        for node in self.nodes.values():
+            if node.mass != 0.0:
+                self.M[node.dofs[0], node.dofs[0]] += node.mass
+                self.M[node.dofs[1], node.dofs[1]] += node.mass
+            if node.inertia != 0.0:
+                self.M[node.dofs[2], node.dofs[2]] += node.inertia
+
+    def get_reduced_matrices(self):
+        """
+        Return (K_ff, M_ff) reduced to free degrees of freedom.
+        Assumes assemble_stiffness() and assemble_mass_matrix() have been called,
+        and apply_boundary_conditions() has been called.
+        """
+        if self.free_dofs is None:
+            raise ValueError(
+                "Boundary conditions not applied. Call apply_boundary_conditions() first."
+            )
+        if self.K is None:
+            self.assemble_stiffness()
+        if self.M is None:
+            self.assemble_mass_matrix()
+        K_ff = self.K[np.ix_(self.free_dofs, self.free_dofs)]
+        M_ff = self.M[np.ix_(self.free_dofs, self.free_dofs)]
+        return K_ff, M_ff
