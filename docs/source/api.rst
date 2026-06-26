@@ -33,7 +33,7 @@ Non‑Linear Beam Elements
    :show-inheritance:
 
 Beam with Hinges
-^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^
 .. automodule:: fem2d.elements.beam_hinges
    :members:
    :undoc-members:
