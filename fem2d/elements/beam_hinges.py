@@ -1,16 +1,66 @@
+"""
+Beam with hinges module defining beam elements with internal moment releases.
+"""
+
 from fem2d.elements.beam import BeamElement
 import numpy as np
 
 
 class BeamWithHingesElement(BeamElement):
+    """
+    Beam element that allows specifying internal moment releases (hinges) at ends i and/or j.
+
+    Attributes
+    ----------
+    hinge_i : bool
+        Whether end i has a moment release (hinge).
+    hinge_j : bool
+        Whether end j has a moment release (hinge).
+    """
+
     def __init__(
         self, eid, node_i, node_j, material, area, inertia, hinge_i=False, hinge_j=False
     ):
+        """
+        Initialize a BeamWithHingesElement.
+
+        Parameters
+        ----------
+        eid : int or str
+            Unique identifier of the element.
+        node_i : Node
+            Start node.
+        node_j : Node
+            End node.
+        material : ElasticMaterial
+            Material definition.
+        area : float
+            Cross-sectional area.
+        inertia : float
+            Moment of inertia.
+        hinge_i : bool, optional
+            Whether end i has a hinge. Defaults to False.
+        hinge_j : bool, optional
+            Whether end j has a hinge. Defaults to False.
+        """
         super().__init__(eid, node_i, node_j, material, area, inertia)
         self.hinge_i = hinge_i
         self.hinge_j = hinge_j
 
     def local_stiffness(self):
+        """
+        Compute local stiffness matrix taking moment releases into account.
+
+        Returns
+        -------
+        numpy.ndarray
+            6x6 local stiffness matrix.
+
+        Raises
+        ------
+        NotImplementedError
+            If only a single hinge is specified (not yet fully implemented).
+        """
         k_full = super().local_stiffness()
         if not self.hinge_i and not self.hinge_j:
             return k_full

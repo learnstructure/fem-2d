@@ -1,13 +1,65 @@
+"""
+Non-linear beam element module implementing a geometrically non-linear 2D beam element.
+"""
+
 import numpy as np
 
 
 class BeamElementNL:
     """
-    Geometrically nonlinear 2D beam element using corotational formulation
-    (Euler-Bernoulli). Follows the interface required by NewtonRaphsonSolver.
+    Geometrically nonlinear 2D beam element using corotational formulation (Euler-Bernoulli).
+
+    Follows the interface required by NewtonRaphsonSolver.
+
+    Attributes
+    ----------
+    id : int or str
+        Unique identifier of the element.
+    node_i : Node
+        Start node of the element.
+    node_j : Node
+        End node of the element.
+    material : ElasticMaterial
+        Material definition for the element.
+    area : float
+        Cross-sectional area.
+    inertia : float
+        Moment of inertia of the cross-section.
+    L0 : float or None
+        Initial (undeformed) length.
+    alpha0 : float or None
+        Initial (undeformed) chord angle in radians.
+    structure : Structure or None
+        The parent structure containing this element.
+    f_local : numpy.ndarray or None
+        Current internal force vector in local coordinates.
+    F_global : numpy.ndarray or None
+        Current internal force vector in global coordinates.
+    k_local : numpy.ndarray or None
+        Current tangent stiffness matrix in local coordinates.
+    K_global : numpy.ndarray or None
+        Current tangent stiffness matrix in global coordinates.
     """
 
     def __init__(self, eid, node_i, node_j, material, area, inertia):
+        """
+        Initialize a BeamElementNL.
+
+        Parameters
+        ----------
+        eid : int or str
+            Unique identifier of the element.
+        node_i : Node
+            Start node.
+        node_j : Node
+            End node.
+        material : ElasticMaterial
+            Material definition.
+        area : float
+            Cross-sectional area.
+        inertia : float
+            Moment of inertia.
+        """
         self.id = eid
         self.node_i = node_i
         self.node_j = node_j
@@ -33,8 +85,13 @@ class BeamElementNL:
 
     def update_state(self, global_disp):
         """
-        Compute current internal forces and tangent stiffness
+        Compute current internal forces and tangent stiffness in global coordinates
         given the global displacement vector of the whole structure.
+
+        Parameters
+        ----------
+        global_disp : numpy.ndarray
+            Full global displacement vector of the structure.
         """
         if self.L0 is None:
             self._update_initial_geometry()
@@ -164,11 +221,34 @@ class BeamElementNL:
         self.K_global = K_global
 
     def get_tangent_stiffness(self):
+        """
+        Return global tangent stiffness matrix of the element.
+
+        Returns
+        -------
+        numpy.ndarray
+            6x6 tangent stiffness matrix in global coordinates.
+        """
         return self.K_global
 
     def get_internal_forces(self):
+        """
+        Return global internal forces vector of the element.
+
+        Returns
+        -------
+        numpy.ndarray
+            6x1 internal forces vector in global coordinates.
+        """
         return self.F_global
 
     def get_local_forces(self):
-        """Return local end forces (6 components) for post‑processing."""
+        """
+        Return local end forces (6 components) for post‑processing.
+
+        Returns
+        -------
+        numpy.ndarray
+            6x1 force vector in local coordinates.
+        """
         return self.f_local

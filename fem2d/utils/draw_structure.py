@@ -1,3 +1,8 @@
+"""
+DrawStructure module implementing visualization of 2D frame structures using Matplotlib.
+Supports drawing support symbols, point loads, moments, distributed loads, and deformed shapes.
+"""
+
 import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.patches import Polygon, Circle, FancyArrowPatch, Arc
@@ -5,13 +10,45 @@ from matplotlib.collections import LineCollection
 
 
 class DrawStructure:
+    """
+    Visualizes the structural model geometry, boundary conditions, applied loads, and deformed shape.
+
+    Attributes
+    ----------
+    structure : Structure
+        The Structure object to draw.
+    scale : float
+        Displacement magnification factor for drawing deformed shapes.
+    arrow_scale : float
+        Scaling factor for loading arrows relative to the characteristic span of the structure.
+    """
+
     def __init__(self, structure, scale=1.0, arrow_scale=0.1):
+        """
+        Initialize the structure plotter.
+
+        Parameters
+        ----------
+        structure : Structure
+            The Structure object to draw.
+        scale : float, optional
+            Displacement magnification factor. Defaults to 1.0.
+        arrow_scale : float, optional
+            Loading arrows scale factor. Defaults to 0.1.
+        """
         self.structure = structure
         self.scale = scale
         self.arrow_scale = arrow_scale  # fraction of structure span
 
     def _get_span(self):
-        """Return characteristic length for scaling symbols."""
+        """
+        Return the characteristic length (span) of the structure for scaling symbols.
+
+        Returns
+        -------
+        float
+            The characteristic length.
+        """
         x = [node.x for node in self.structure.nodes.values()]
         y = [node.y for node in self.structure.nodes.values()]
         span = max(max(x) - min(x), max(y) - min(y))
@@ -20,7 +57,18 @@ class DrawStructure:
         return span
 
     def _draw_support(self, node, support_type, span):
-        """Draw support symbol at node based on fixity."""
+        """
+        Draw boundary condition (support) symbol at a node based on fixity.
+
+        Parameters
+        ----------
+        node : Node
+            The Node object where support is located.
+        support_type : list of bool
+            Fixity condition list [ux, uy, rz].
+        span : float
+            Characteristic structure span for scaling the support symbol.
+        """
         # Support size relative to span
         size = 0.03 * span
         x, y = node.x, node.y
@@ -84,7 +132,14 @@ class DrawStructure:
             plt.plot([x, x + 0.3 * size], [y, y - wheel_radius], "k-", linewidth=1)
 
     def _draw_loads(self, span):
-        """Draw point loads, moments, and distributed loads."""
+        """
+        Draw point loads, moments, and distributed loads acting on the structure.
+
+        Parameters
+        ----------
+        span : float
+            Characteristic structure span for scaling the load arrows and symbols.
+        """
         # Determine max force for scaling arrows
         max_force = 0
         for node in self.structure.nodes.values():
@@ -174,6 +229,18 @@ class DrawStructure:
                 plt.gca().add_patch(arrowhead)
 
     def draw(self, show_undeformed=True, show_deformed=True, n_points=20):
+        """
+        Draw the structure plot (geometry, loads, boundary conditions, displacements) using Matplotlib.
+
+        Parameters
+        ----------
+        show_undeformed : bool, optional
+            Whether to draw the undeformed structure. Defaults to True.
+        show_deformed : bool, optional
+            Whether to draw the deformed structure. Defaults to True.
+        n_points : int, optional
+            Number of points for plotting deformed shape curves. Defaults to 20.
+        """
         plt.figure(figsize=(10, 8))
         ax = plt.gca()
         span = self._get_span()

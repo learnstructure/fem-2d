@@ -1,27 +1,86 @@
+"""
+Loads module defining point, distributed, and varying loads for nodes and elements.
+"""
+
 import numpy as np
 
 
 class PointLoad:
-    """Represents a load acting on a node."""
+    """
+    Represents a concentrated force/moment load acting on a node.
 
-    def __init__(self, node, fx=0, fy=0, mz=0):
+    Attributes
+    ----------
+    node : Node
+        The Node object to which the load is applied.
+    fx : float
+        Force along the global x-axis.
+    fy : float
+        Force along the global y-axis.
+    mz : float
+        Moment about the global z-axis.
+    """
+
+    def __init__(self, node, fx=0.0, fy=0.0, mz=0.0):
+        """
+        Initialize a PointLoad.
+
+        Parameters
+        ----------
+        node : Node
+            The Node object to which the load is applied.
+        fx : float, optional
+            Force along the global x-axis. Defaults to 0.0.
+        fy : float, optional
+            Force along the global y-axis. Defaults to 0.0.
+        mz : float, optional
+            Moment about the global z-axis. Defaults to 0.0.
+        """
         self.node = node
         self.fx, self.fy, self.mz = fx, fy, mz
 
 
 class ElementLoad:
-    """Base class for loads acting on an element."""
+    """
+    Base class for loads acting along the length of an element.
+
+    Attributes
+    ----------
+    element : ElementBase
+        The element to which the load is applied.
+    """
 
     def __init__(self, element):
+        """
+        Initialize an ElementLoad.
+
+        Parameters
+        ----------
+        element : ElementBase
+            The element to which the load is applied.
+        """
         self.element = element
 
     def _compute_equivalent_loads(self):
+        """
+        Compute the equivalent local nodal forces and moments for this load type.
+
+        Raises
+        ------
+        NotImplementedError
+            If not implemented by a subclass.
+        """
         raise NotImplementedError("Subclasses must implement this method")
 
     def _transform_and_store_equivalent_loads(self, eq_local):
         """
         Transform local equivalent nodal loads to global coordinates and
         store them in the element.
+
+        Parameters
+        ----------
+        eq_local : numpy.ndarray
+            6-component vector of equivalent loads in the element's local system.
         """
         c = self.element.cos
         s = self.element.sin
@@ -50,14 +109,26 @@ class DistributedLoad(ElementLoad):
     """
 
     def __init__(self, element, wx=0.0, wy=0.0):
+        """
+        Initialize a DistributedLoad.
+
+        Parameters
+        ----------
+        element : ElementBase
+            The element to which the load is applied.
+        wx : float, optional
+            Axial force intensity per unit length. Defaults to 0.0.
+        wy : float, optional
+            Transverse force intensity per unit length. Defaults to 0.0.
+        """
         super().__init__(element)
         self.wx = wx
         self.wy = wy
         self._compute_equivalent_loads()
 
     def _compute_equivalent_loads(self):
+        """Compute standard fixed-end forces for uniform load in local coordinates."""
         L = self.element.length
-        # Standard fixed-end forces for uniform load (local coordinates)
         eq_local = np.array(
             [
                 self.wx * L / 2,
@@ -82,6 +153,27 @@ class ElementPointLoad(ElementLoad):
     """
 
     def __init__(self, element, px=0.0, py=0.0, mz=0.0, x=0.0):
+        """
+        Initialize an ElementPointLoad.
+
+        Parameters
+        ----------
+        element : ElementBase
+            The element to which the load is applied.
+        px : float, optional
+            Local axial force intensity. Defaults to 0.0.
+        py : float, optional
+            Local transverse force intensity. Defaults to 0.0.
+        mz : float, optional
+            Local moment. Defaults to 0.0.
+        x : float, optional
+            Distance from the start node (node_i) along the element length. Defaults to 0.0.
+
+        Raises
+        ------
+        ValueError
+            If the distance `x` is out of bounds (less than 0 or greater than element length).
+        """
         super().__init__(element)
         self.px = px
         self.py = py
@@ -92,6 +184,7 @@ class ElementPointLoad(ElementLoad):
         self._compute_equivalent_loads()
 
     def _compute_equivalent_loads(self):
+        """Compute fixed-end forces for a point load in local coordinates."""
         L = self.element.length
         a = self.x
         b = L - a
@@ -122,6 +215,22 @@ class TriangularLoad(ElementLoad):
     """
 
     def __init__(self, element, wx1=0.0, wx2=0.0, wy1=0.0, wy2=0.0):
+        """
+        Initialize a TriangularLoad/TrapezoidalLoad.
+
+        Parameters
+        ----------
+        element : ElementBase
+            The element to which the load is applied.
+        wx1 : float, optional
+            Axial force intensity at the start node. Defaults to 0.0.
+        wx2 : float, optional
+            Axial force intensity at the end node. Defaults to 0.0.
+        wy1 : float, optional
+            Transverse force intensity at the start node. Defaults to 0.0.
+        wy2 : float, optional
+            Transverse force intensity at the end node. Defaults to 0.0.
+        """
         super().__init__(element)
         self.wx1 = wx1
         self.wx2 = wx2
@@ -130,6 +239,7 @@ class TriangularLoad(ElementLoad):
         self._compute_equivalent_loads()
 
     def _compute_equivalent_loads(self):
+        """Compute equivalent local forces for trapezoidally distributed loads."""
         L = self.element.length
         eq_local = np.zeros(6)
 

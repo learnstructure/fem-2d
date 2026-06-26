@@ -1,10 +1,36 @@
+"""
+Sections module defining cross-sectional properties of structural elements.
+"""
+
 import math
 
 
 class Section:
+    """
+    Represents a cross-section of a structural element with area and moment of inertia.
+
+    Attributes
+    ----------
+    A : float
+        Cross-sectional area.
+    I : float
+        Moment of inertia (second moment of area).
+    """
+
     def __init__(self, area, moi):
+        """
+        Initialize a Section object.
+
+        Parameters
+        ----------
+        area : float
+            Cross-sectional area.
+        moi : float
+            Moment of inertia (second moment of area).
+        """
         self.A = area
         self.I = moi  # moment of inertia
+
 
     @classmethod
     def from_rectangle(cls, width, depth):

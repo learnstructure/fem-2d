@@ -1,19 +1,71 @@
+"""
+Truss element module defining 2D elastic truss (bar) elements with axial stiffness.
+"""
+
 from fem2d.elements.element import ElementBase
 import numpy as np
 
 
 class TrussElement(ElementBase):
+    """
+    Elastic 2D truss (pin-jointed bar) element with only axial stiffness.
+
+    Attributes
+    ----------
+    material : ElasticMaterial or None
+        Material definition for the element.
+    area : float or None
+        Cross-sectional area.
+    extra_mass : float
+        Additional distributed mass per unit length.
+    """
+
     def __init__(self, eid, node_i, node_j, material, area, extra_mass=0.0):
+        """
+        Initialize a TrussElement.
+
+        Parameters
+        ----------
+        eid : int or str
+            Unique identifier of the element.
+        node_i : Node
+            Start node.
+        node_j : Node
+            End node.
+        material : ElasticMaterial or None
+            Material definition.
+        area : float or None
+            Cross-sectional area.
+        extra_mass : float, optional
+            Additional distributed mass per unit length. Defaults to 0.0.
+        """
         super().__init__(eid, node_i, node_j)
         self.material = material
         self.area = area
         self.extra_mass = extra_mass  # kg/m additional distributed mass
 
     def local_stiffness(self):
+        """
+        Return the 4x4 element stiffness matrix in local coordinates.
+
+        Returns
+        -------
+        numpy.ndarray
+            4x4 stiffness matrix.
+        """
         k = self.area * self.material.E / self.length
         return np.array([[k, 0, -k, 0], [0, 0, 0, 0], [-k, 0, k, 0], [0, 0, 0, 0]])
 
     def global_stiffness(self):
+        """
+        Assemble and return the 6x6 global stiffness matrix.
+        Expands the 4x4 matrix by inserting zeros for rotational DOFs.
+
+        Returns
+        -------
+        numpy.ndarray
+            6x6 global stiffness matrix.
+        """
         # Expand 4x4 to 6x6 (insert axial DOFs at positions 0,1 and 3,4)
         k_local = self.local_stiffness()
         T4 = self.transformation_matrix(dof_per_node=2)  # custom 4x4 T
@@ -27,12 +79,32 @@ class TrussElement(ElementBase):
         return k_global
 
     def transformation_matrix(self, dof_per_node=2):
+        """
+        Return the transformation matrix from local to global coordinates.
+
+        Parameters
+        ----------
+        dof_per_node : int, optional
+            Number of degrees of freedom per node. Defaults to 2.
+
+        Returns
+        -------
+        numpy.ndarray
+            4x4 transformation matrix.
+        """
         c = self.cos
         s = self.sin
         return np.array([[c, s, 0, 0], [-s, c, 0, 0], [0, 0, c, s], [0, 0, -s, c]])
 
     def get_local_forces(self):
-        """Return local end forces as a 6‑component array: [Fx_i, Fy_i, M_i, Fx_j, Fy_j, M_j]."""
+        """
+        Compute and return the local member end forces.
+
+        Returns
+        -------
+        numpy.ndarray
+            6-component vector [Fx_i, Fy_i, Mz_i, Fx_j, Fy_j, Mz_j] in local coordinates.
+        """
         # Get global displacements
         u_i = self.structure.disp[self.node_i.dofs]  # [ux, uy, rz]
         u_j = self.structure.disp[self.node_j.dofs]
@@ -55,7 +127,21 @@ class TrussElement(ElementBase):
 
     def deformed_shape_points(self, global_disp, n_points=2, scale=1.0):
         """
-        For a truss, just return the two displaced end points.
+        Return end point coordinates representing the deformed shape of the truss.
+
+        Parameters
+        ----------
+        global_disp : numpy.ndarray
+            Full global displacement vector.
+        n_points : int, optional
+            Number of points along the element. Defaults to 2.
+        scale : float, optional
+            Displacement magnification factor. Defaults to 1.0.
+
+        Returns
+        -------
+        list of tuple of float
+            End point coordinates (start and end).
         """
         u_i = global_disp[self.node_i.dofs]
         u_j = global_disp[self.node_j.dofs]
@@ -73,6 +159,15 @@ class TrussElement(ElementBase):
         return [(x_i_def, y_i_def), (x_j_def, y_j_def)]
 
     def mass_matrix(self):
+        """
+        Return the 6x6 global mass matrix.
+        Lumps the element and extra mass equally to translational DOFs at ends.
+
+        Returns
+        -------
+        numpy.ndarray
+            6x6 global mass matrix.
+        """
         L = self.length
         A = self.area
         rho = self.material.rho

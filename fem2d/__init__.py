@@ -1,8 +1,11 @@
 """
 fem2d: A simple 2D finite element analysis library in Python.
 
-Author: Abinash Mandal
+This library provides classes and utilities for performing 2D finite element analysis (FEA)
+of structural frames, including truss, beam, and spring elements with linear and 
+geometrically non-linear solver options.
 
+Author: Abinash Mandal
 """
 
 from .structure import Structure

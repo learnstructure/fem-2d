@@ -1,13 +1,55 @@
+"""
+Solver module implementing non-linear iterative solvers (Newton-Raphson).
+"""
+
 import numpy as np
 
 
 class NewtonRaphsonSolver:
+    """
+    Newton-Raphson solver for geometrically non-linear structural analysis.
+
+    Attributes
+    ----------
+    structure : Structure
+        The Structure object to be solved.
+    tol : float
+        Convergence tolerance for unbalanced force norm relative to external force.
+    max_iter : int
+        Maximum number of iterations allowed for convergence.
+    """
+
     def __init__(self, structure, tolerance=1e-8, max_iter=30):
+        """
+        Initialize the Newton-Raphson solver.
+
+        Parameters
+        ----------
+        structure : Structure
+            The Structure object to be solved.
+        tolerance : float, optional
+            Convergence tolerance. Defaults to 1e-8.
+        max_iter : int, optional
+            Maximum iterations. Defaults to 30.
+        """
         self.structure = structure
         self.tol = tolerance
         self.max_iter = max_iter
 
     def solve(self, P_ext):
+        """
+        Solve for non-linear displacements given external force vector.
+
+        Parameters
+        ----------
+        P_ext : numpy.ndarray
+            External force vector for all degrees of freedom.
+
+        Returns
+        -------
+        numpy.ndarray
+            Converged displacement vector for all degrees of freedom.
+        """
         d = np.zeros(self.structure.neq)  # current displacements
 
         for iteration in range(self.max_iter):

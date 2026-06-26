@@ -1,3 +1,7 @@
+"""
+Non-linear truss element module implementing a geometrically non-linear 2D truss element.
+"""
+
 import numpy as np
 from fem2d.elements.element import ElementBase
 
@@ -5,10 +9,51 @@ from fem2d.elements.element import ElementBase
 class TrussElementNL(ElementBase):
     """
     Geometrically nonlinear truss element using corotational formulation.
-    Nodes have 2 DOF: [ux, uy].
+    Nodes have 2 translational DOFs: [ux, uy], with rotation index mapped to zero.
+
+    Attributes
+    ----------
+    material : ElasticMaterial
+        Material definition for the element.
+    area : float
+        Cross-sectional area.
+    L0 : float
+        Initial (undeformed) length.
+    Q : float
+        Axial force (compression positive, tension negative).
+    cx : float
+        Current direction cosine along the global x-axis.
+    cy : float
+        Current direction cosine along the global y-axis.
+    L : float
+        Current deformed length.
+    ke : numpy.ndarray or None
+        Elastic stiffness matrix in global coordinates.
+    kg : numpy.ndarray or None
+        Geometric stiffness matrix in global coordinates.
+    k_t : numpy.ndarray or None
+        Tangent stiffness matrix in global coordinates.
+    F_global : numpy.ndarray or None
+        Internal force vector in global coordinates.
     """
 
     def __init__(self, eid, node_i, node_j, material, area):
+        """
+        Initialize a TrussElementNL.
+
+        Parameters
+        ----------
+        eid : int or str
+            Unique identifier of the element.
+        node_i : Node
+            Start node.
+        node_j : Node
+            End node.
+        material : ElasticMaterial
+            Material definition.
+        area : float
+            Cross-sectional area.
+        """
         super().__init__(eid, node_i, node_j)
         self.material = material
         self.area = area
@@ -26,7 +71,12 @@ class TrussElementNL(ElementBase):
     def update_state(self, global_disp):
         """
         Given global displacement vector of the whole structure,
-        extract this element's end displacements and update internal state.
+        extract this element's end displacements and update internal state (internal force, tangent stiffness).
+
+        Parameters
+        ----------
+        global_disp : numpy.ndarray
+            Full global displacement vector of the structure.
         """
         # End displacements in global coordinates (2 per node)
         u_i = global_disp[self.node_i.dofs]  # [ux_i, uy_i]
@@ -100,9 +150,25 @@ class TrussElementNL(ElementBase):
                 self.k_t[ii, jj] = k_t_local[i, j]
 
     def get_tangent_stiffness(self):
+        """
+        Return the global tangent stiffness matrix of the element.
+
+        Returns
+        -------
+        numpy.ndarray
+            6x6 tangent stiffness matrix in global coordinates.
+        """
         return self.k_t
 
     def get_internal_forces(self):
+        """
+        Return the global internal force vector of the element.
+
+        Returns
+        -------
+        numpy.ndarray
+            6x1 global internal force vector.
+        """
         return self.F_global
 
     def get_local_forces(self):
@@ -110,5 +176,10 @@ class TrussElementNL(ElementBase):
         Return local end forces as a 6‑component array:
         [Fx_i, Fy_i, Mz_i, Fx_j, Fy_j, Mz_j]
         Axial force Q is positive in compression.
+
+        Returns
+        -------
+        numpy.ndarray
+            6x1 force vector in local coordinates.
         """
         return np.array([self.Q, 0.0, 0.0, -self.Q, 0.0, 0.0])

@@ -1,9 +1,48 @@
+"""
+Beam element module defining 2D elastic Euler-Bernoulli beam elements with mass options.
+"""
+
 from fem2d.elements.element import ElementBase
 import numpy as np
 
 
 class BeamElement(ElementBase):
+    """
+    Elastic 2D Euler-Bernoulli beam element including axial, shear, and bending stiffness.
+
+    Attributes
+    ----------
+    material : ElasticMaterial
+        Material definition for the element.
+    area : float
+        Cross-sectional area.
+    inertia : float
+        Moment of inertia of the cross-section.
+    extra_mass : float
+        Additional distributed mass per unit length (e.g. non-structural mass).
+    """
+
     def __init__(self, eid, node_i, node_j, material, area, inertia, extra_mass=0.0):
+        """
+        Initialize a BeamElement.
+
+        Parameters
+        ----------
+        eid : int or str
+            Unique identifier of the element.
+        node_i : Node
+            Start node.
+        node_j : Node
+            End node.
+        material : ElasticMaterial
+            Material definition.
+        area : float
+            Cross-sectional area.
+        inertia : float
+            Moment of inertia.
+        extra_mass : float, optional
+            Additional distributed mass per unit length. Defaults to 0.0.
+        """
         super().__init__(eid, node_i, node_j)
         self.material = material
         self.area = area
@@ -11,6 +50,14 @@ class BeamElement(ElementBase):
         self.extra_mass = extra_mass  # kg/m, additional distributed mass
 
     def local_stiffness(self):
+        """
+        Return the 6x6 element stiffness matrix in local coordinates.
+
+        Returns
+        -------
+        numpy.ndarray
+            Stiffness matrix in local coordinate system.
+        """
         E = self.material.E
         A = self.area
         I = self.inertia
@@ -35,6 +82,14 @@ class BeamElement(ElementBase):
     # transformation_matrix() from base class is already 6x6, so global_stiffness() works directly.
 
     def equivalent_nodal_loads(self):
+        """
+        Return local equivalent nodal loads due to distributed element loads.
+
+        Returns
+        -------
+        numpy.ndarray
+            Equivalent nodal load vector (6x1).
+        """
         # If a distributed load is stored, compute fixed‑end forces.
         # For example, uniform load w in local y‑direction:
         if hasattr(self, "w"):
@@ -44,7 +99,14 @@ class BeamElement(ElementBase):
         return np.zeros(6)
 
     def get_local_forces(self):
-        """Return local end forces as a 6‑component array."""
+        """
+        Compute and return the element internal forces in local coordinates.
+
+        Returns
+        -------
+        numpy.ndarray
+            6-component vector [Fx_i, Fy_i, Mz_i, Fx_j, Fy_j, Mz_j] in local coordinates.
+        """
         u_i = self.structure.disp[self.node_i.dofs]
         u_j = self.structure.disp[self.node_j.dofs]
         u_global = np.concatenate([u_i, u_j])
@@ -59,9 +121,22 @@ class BeamElement(ElementBase):
 
     def deformed_shape_points(self, global_disp, n_points=20, scale=1.0):
         """
-        Returns a list of (x, y) points in global coordinates representing
+        Return a list of (x, y) points in global coordinates representing
         the deformed shape of the beam, scaled by `scale`.
-        global_disp: full global displacement vector of the structure.
+
+        Parameters
+        ----------
+        global_disp : numpy.ndarray
+            Full global displacement vector of the structure.
+        n_points : int, optional
+            Number of points to generate along the element. Defaults to 20.
+        scale : float, optional
+            Displacement magnification factor. Defaults to 1.0.
+
+        Returns
+        -------
+        list of tuple of float
+            List of (x, y) coordinates representing the deformed shape.
         """
         # Extract nodal displacements (global)
         u_i = global_disp[self.node_i.dofs]  # [ux_i, uy_i, rz_i]
@@ -119,7 +194,14 @@ class BeamElement(ElementBase):
         return points
 
     def mass_matrix(self):
-        """Return global mass matrix (6x6) for this element."""
+        """
+        Return the 6x6 global mass matrix (including rotational inertia and extra mass).
+
+        Returns
+        -------
+        numpy.ndarray
+            6x6 global mass matrix.
+        """
         L = self.length
         A = self.area
         I = self.inertia
@@ -178,6 +260,7 @@ class BeamElement(ElementBase):
         m2[5, 4] = -3.0 * L * factor_rot
         m2[5, 5] = 4.0 * L**2 * factor_rot
 
+        # total local mass matrix
         m_local = m1 + m2
 
         # Transform to global

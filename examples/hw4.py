@@ -1,4 +1,6 @@
 # HW4 - Earthquake resistant design of structures
+# first mode period by sap2000 is 0.740.
+# To match with sap, shear stiffness modifier in sap needs to be very high to ignore shear deformation. also self weight needs to be zeroed out.
 import numpy as np
 from fem2d import Structure, Node, ElasticMaterial, BeamElement, Section, DrawStructure
 from structdyn.mdf.mdf import MDF
@@ -7,7 +9,7 @@ import math
 # -------------------------------------------------------------------
 # Model parameters (kips, inches, seconds)
 # -------------------------------------------------------------------
-g = 386.4  # in/s²
+g = 386.09  # in/s²
 width = 16 * 12  # in
 story_height = 10 * 12  # in
 n_stories = 4
@@ -138,7 +140,7 @@ T = 2 * math.pi / omega
 
 print("\nFirst 5 periods (seconds):")
 for i in range(min(5, len(T))):
-    print(f"Mode {i+1}: {T[i]:.3f} s")
+    print(f"Mode {i+1}: {T[i]:.6f} s")
 
 # Choose which mode to plot (first mode: index 0)
 mode_index = 0
