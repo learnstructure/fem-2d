@@ -3,6 +3,8 @@ An open-source Python library for structural finite element analysis of 2D struc
 
 **FEM2D** is a Python package for performing 2D finite element analysis (FEA) of structural frames, including truss, beam, and spring elements with support for linear static analysis, geometrically non-linear analysis, and global mass matrix assembly for dynamic analysis.
 
+Documentation: [![Documentation Status](https://readthedocs.org/projects/fem2d/badge/?version=latest)](https://fem2d.readthedocs.io/en/latest/)
+
 ## Features
 
 - **Element Library:**
