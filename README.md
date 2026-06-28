@@ -153,7 +153,7 @@ pytest
 If you use `fem2d` in your academic research or professional work, please cite it as follows:
 
 ```
-Mandal, A. (2026). FEM2D: An open-source Python library for structural analysis of 2D structures (Version 0.2.1) [Computer software]. https://github.com/learnstructure/fem-2d.git
+Mandal, A. (2026). FEM2D: An open-source Python library for structural analysis of 2D structures (v0.2.1). Zenodo. https://doi.org/10.5281/zenodo.20990850
 ```
 
 Refer to [CITATION.cff](CITATION.cff) for the BibTeX format details.

@@ -18,8 +18,12 @@ from .elements.truss import TrussElement
 from .elements.trussNL import TrussElementNL
 from .elements.beamNL import BeamElementNL
 from .utils.simple_frame import SimpleFrame
-from .utils.draw_structure import DrawStructure
 from .solver import NewtonRaphsonSolver
+
+try:
+    from .utils.draw_structure import DrawStructure
+except ImportError:  # pragma: no cover - optional plotting dependency
+    DrawStructure = None
 
 __all__ = [
     "Structure",

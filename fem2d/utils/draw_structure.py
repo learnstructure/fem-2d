@@ -3,10 +3,15 @@ DrawStructure module implementing visualization of 2D frame structures using Mat
 Supports drawing support symbols, point loads, moments, distributed loads, and deformed shapes.
 """
 
-import matplotlib.pyplot as plt
 import numpy as np
-from matplotlib.patches import Polygon, Circle, FancyArrowPatch, Arc
-from matplotlib.collections import LineCollection
+
+try:
+    import matplotlib.pyplot as plt
+    from matplotlib.patches import Polygon, Circle, FancyArrowPatch, Arc
+    from matplotlib.collections import LineCollection
+except ImportError:  # pragma: no cover - optional dependency for docs builds
+    plt = None
+    Polygon = Circle = FancyArrowPatch = Arc = LineCollection = None
 
 
 class DrawStructure:
@@ -241,6 +246,9 @@ class DrawStructure:
         n_points : int, optional
             Number of points for plotting deformed shape curves. Defaults to 20.
         """
+        if plt is None:
+            raise ImportError("matplotlib is required to draw structures")
+
         plt.figure(figsize=(10, 8))
         ax = plt.gca()
         span = self._get_span()
