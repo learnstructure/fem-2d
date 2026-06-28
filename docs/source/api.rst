@@ -1,14 +1,15 @@
 API Reference
 =============
 
-Top‑Level Package
+Top-Level Package
 -----------------
 .. automodule:: fem2d
    :members:
    :undoc-members:
    :show-inheritance:
+   :no-index:
 
-Sub‑packages
+Sub-packages
 ------------
 
 Elements
@@ -25,8 +26,8 @@ Beam Elements
    :undoc-members:
    :show-inheritance:
 
-Non‑Linear Beam Elements
-^^^^^^^^^^^^^^^^^^^^^^^^
+Non-Linear Beam Elements
+^^^^^^^^^^^^^^^^^^^^^^^^^
 .. automodule:: fem2d.elements.beamNL
    :members:
    :undoc-members:
@@ -46,8 +47,8 @@ Truss Elements
    :undoc-members:
    :show-inheritance:
 
-Non‑Linear Truss Elements
-^^^^^^^^^^^^^^^^^^^^^^^^^
+Non-Linear Truss Elements
+^^^^^^^^^^^^^^^^^^^^^^^^^^
 .. automodule:: fem2d.elements.trussNL
    :members:
    :undoc-members:
@@ -69,20 +70,16 @@ Base Element Class
 
 Utilities
 ---------
-.. automodule:: fem2d.utils
-   :members:
-   :undoc-members:
-   :show-inheritance:
 
 Simple Frame Helper
-^^^^^^^^^^^^^^^^^^^
+~~~~~~~~~~~~~~~~~~~
 .. automodule:: fem2d.utils.simple_frame
    :members:
    :undoc-members:
    :show-inheritance:
 
 Drawing Helpers
-^^^^^^^^^^^^^^^
+~~~~~~~~~~~~~~~
 .. automodule:: fem2d.utils.draw_structure
    :members:
    :undoc-members:
