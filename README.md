@@ -5,6 +5,7 @@ An open-source Python library for structural finite element analysis of 2D struc
 
 Documentation: [![Documentation Status](https://readthedocs.org/projects/fem2d/badge/?version=latest)](https://fem2d.readthedocs.io/en/latest/)
 
+
 ## Features
 
 - **Element Library:**
@@ -152,7 +153,7 @@ pytest
 If you use `fem2d` in your academic research or professional work, please cite it as follows:
 
 ```
-Mandal, A. (2026). FEM2D: An open-source Python library for structural analysis of 2D structures (Version 0.2.0) [Computer software]. https://github.com/learnstructure/fem-2d.git
+Mandal, A. (2026). FEM2D: An open-source Python library for structural analysis of 2D structures (Version 0.2.1) [Computer software]. https://github.com/learnstructure/fem-2d.git
 ```
 
 Refer to [CITATION.cff](CITATION.cff) for the BibTeX format details.

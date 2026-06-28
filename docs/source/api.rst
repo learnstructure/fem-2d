@@ -13,7 +13,7 @@ Sub-packages
 ------------
 
 Elements
-~~~~~~~~
+--------
 .. automodule:: fem2d.elements
    :members:
    :undoc-members:
@@ -72,14 +72,14 @@ Utilities
 ---------
 
 Simple Frame Helper
-~~~~~~~~~~~~~~~~~~~
+-------------------
 .. automodule:: fem2d.utils.simple_frame
    :members:
    :undoc-members:
    :show-inheritance:
 
 Drawing Helpers
-~~~~~~~~~~~~~~~
+----------------
 .. automodule:: fem2d.utils.draw_structure
    :members:
    :undoc-members:
