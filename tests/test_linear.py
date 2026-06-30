@@ -6,8 +6,10 @@ from fem2d import (
     ElasticMaterial,
     Section,
     BeamElement,
+    BeamWithHingesElement,
     Results,
 )
+from fem2d.loads import DistributedLoad, PointLoad, ElementPointLoad
 import math
 
 
@@ -232,6 +234,88 @@ def test_beam_5_6():
     assert abs(el_forces["fy_i"][1] - 5.555555555555557) < 1e-9
 
 
+def test_beam_4_11():
+    # Example 4.11: Logan D. L. (2022), A First Course in the Finite Element Method
+    # units in kN, m
+    node1 = Node(1, 0, 0)
+    node2 = Node(2, 2, 0)
+    node3 = Node(3, 3, 0)
+    node4 = Node(4, 4, 0)
+
+    E = 210e6
+    A = 6500e-6
+    I = 2e-4
+    material = ElasticMaterial(E)
+
+    elem1 = BeamElement(1, node1, node2, material, A, I)
+    elem2 = BeamWithHingesElement(2, node2, node3, material, A, I, hinge_j=True)
+    elem3 = BeamElement(3, node3, node4, material, A, I)
+
+    structure = Structure()
+    for node in (node1, node2, node3, node4):
+        structure.add_node(node)
+    structure.add_element(elem1)
+    structure.add_element(elem2)
+    structure.add_element(elem3)
+
+    node1.set_support(ux_fixed=True, uy_fixed=True, rz_fixed=True)
+    node2.set_support(ux_fixed=True, uy_fixed=True, rz_fixed=False)
+    node4.set_support(ux_fixed=True, uy_fixed=True, rz_fixed=True)
+
+    dl = DistributedLoad(elem3, wx=0.0, wy=10.0)
+    structure.add_load(dl)
+
+    structure.solve()
+
+    results = Results(structure)
+    disp = results.node_displacements()
+    el_forces = results.element_forces()
+
+    assert abs(disp["theta"][1] - 1.2755102040816325e-05) < 1e-12
+    assert abs(el_forces["m_j"][2] - 3.928571428571429) < 1e-12
+
+
+def test_frame_7_1():
+    # Example 7.1: Kassimali A. (2022), Matrix analysis of structures
+    # units in kN, m
+    node1 = Node(1, 0, 0)
+    node2 = Node(2, 0, 5)
+    node3 = Node(3, 5, 5)
+    node4 = Node(4, 5, 0)
+
+    E = 200e6
+    A = 6500e-6
+    I = 150e-6
+    material = ElasticMaterial(E)
+
+    elem1 = BeamWithHingesElement(1, node1, node2, material, A, I, hinge_j=True)
+    elem2 = BeamElement(2, node2, node3, material, A, I)
+    elem3 = BeamElement(3, node3, node4, material, A, I)
+
+    structure = Structure()
+    for node in (node1, node2, node3, node4):
+        structure.add_node(node)
+    structure.add_element(elem1)
+    structure.add_element(elem2)
+    structure.add_element(elem3)
+
+    node1.set_support(ux_fixed=True, uy_fixed=True, rz_fixed=True)
+    node4.set_support(ux_fixed=True, uy_fixed=True, rz_fixed=False)
+
+    structure.add_load(PointLoad(node2, fx=90.75, fy=0.0, mz=0.0))
+    structure.add_load(ElementPointLoad(elem2, x=2.5, py=-300.0))
+    structure.add_load(DistributedLoad(elem1, wx=0.0, wy=-19.2))
+
+    structure.solve()
+
+    results = Results(structure)
+    disp = results.node_displacements()
+    el_forces = results.element_forces()
+
+    assert abs(disp["theta"][2] - -0.0013662379393815254) < 1e-12
+    assert abs(el_forces["m_i"][2] - 304.15771709113193) < 1e-9
+
+
 def test_spring_2_1():
     # Example 2.1: Logan D. L. (2017), A First Course in the Finite Element Method
     # units in pound, inches
@@ -295,3 +379,5 @@ def test_beam_spring():
 
     assert abs(disp["uy"][2] - -0.017441860465116272) < 1e-9
     assert abs(el_forces["m_i"][1] - 139.53488372093017) < 1e-9
+
+

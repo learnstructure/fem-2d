@@ -81,22 +81,22 @@ class BeamElement(ElementBase):
 
     # transformation_matrix() from base class is already 6x6, so global_stiffness() works directly.
 
-    def equivalent_nodal_loads(self):
-        """
-        Return local equivalent nodal loads due to distributed element loads.
+    # def equivalent_nodal_loads(self):
+    #     """
+    #     Return local equivalent nodal loads due to distributed element loads.
 
-        Returns
-        -------
-        numpy.ndarray
-            Equivalent nodal load vector (6x1).
-        """
-        # If a distributed load is stored, compute fixed‑end forces.
-        # For example, uniform load w in local y‑direction:
-        if hasattr(self, "w"):
-            w = self.w
-            L = self.length
-            return np.array([0, w * L / 2, w * L**2 / 12, 0, w * L / 2, -w * L**2 / 12])
-        return np.zeros(6)
+    #     Returns
+    #     -------
+    #     numpy.ndarray
+    #         Equivalent nodal load vector (6x1).
+    #     """
+    #     # If a distributed load is stored, compute fixed‑end forces.
+    #     # For example, uniform load w in local y‑direction:
+    #     if hasattr(self, "w"):
+    #         w = self.w
+    #         L = self.length
+    #         return np.array([0, w * L / 2, w * L**2 / 12, 0, w * L / 2, -w * L**2 / 12])
+    #     return np.zeros(6)
 
     def get_local_forces(self):
         """

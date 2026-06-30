@@ -14,6 +14,7 @@ from .materials import ElasticMaterial
 from .sections import Section
 from .results import Results
 from .elements.beam import BeamElement
+from .elements.beam_hinges import BeamWithHingesElement
 from .elements.truss import TrussElement
 from .elements.trussNL import TrussElementNL
 from .elements.beamNL import BeamElementNL
@@ -32,6 +33,7 @@ __all__ = [
     "Section",
     "Results",
     "BeamElement",
+    "BeamWithHingesElement",
     "TrussElement",
     "TrussElementNL",
     "BeamElementNL",

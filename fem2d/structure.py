@@ -6,7 +6,7 @@ import numpy as np
 
 from fem2d.elements.beam import BeamElement
 from fem2d.elements.spring import SpringElement
-from .loads import DistributedLoad
+from .loads import DistributedLoad, PointLoad
 from .solver import NewtonRaphsonSolver
 
 
@@ -106,12 +106,19 @@ class Structure:
                     self.K[ii, jj] += k_global[i, j]
 
     def assemble_loads(self):
-        """Assemble the global force vector from nodal forces and element equivalent loads."""
+        """Assemble the global force vector from nodal forces, point loads, and element equivalent loads."""
         self.F = np.zeros(self.neq)
-        # nodal loads
+        # nodal loads stored on nodes
         for node in self.nodes.values():
             if any(node.load):
                 self.F[node.dofs] += node.load
+
+        # point loads stored in self.loads
+        for load in self.loads:
+            if isinstance(load, PointLoad):
+                dofs = load.node.dofs
+                self.F[dofs] += np.array([load.fx, load.fy, load.mz])
+
         # element loads (distributed, etc.)
         for el in self.elements.values():
             if hasattr(el, "eq_load") and el.eq_load is not None:

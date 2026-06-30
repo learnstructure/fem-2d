@@ -6,6 +6,7 @@ from fem2d.elements.beam import BeamElement
 import numpy as np
 
 
+
 class BeamWithHingesElement(BeamElement):
     """
     Beam element that allows specifying internal moment releases (hinges) at ends i and/or j.
@@ -55,30 +56,101 @@ class BeamWithHingesElement(BeamElement):
         -------
         numpy.ndarray
             6x6 local stiffness matrix.
-
-        Raises
-        ------
-        NotImplementedError
-            If only a single hinge is specified (not yet fully implemented).
         """
-        k_full = super().local_stiffness()
-        if not self.hinge_i and not self.hinge_j:
-            return k_full
-        # Apply releases: zero moment at hinge ends.
-        # This requires condensing out the rotational DOFs at released ends.
-        # For simplicity, we'll implement the common case of a beam with both ends hinged.
-        # The resulting stiffness is then a truss‑like element with axial stiffness only,
-        # but that's exactly what a truss element does. So for hinges, you might simply use TrussElement.
-        # A more sophisticated implementation would keep the bending terms but allow moment release.
-        # Here we'll return a modified matrix (for illustration):
-        if self.hinge_i and self.hinge_j:
-            # Both ends hinged -> axial only
-            k = np.zeros((6, 6))
-            k[0, 0] = k[0, 3] = k[3, 0] = k[3, 3] = (
-                self.area * self.material.E / self.length
-            )
-            return k
-        # Single hinge: you'd need to condense the rotation at that end.
-        # This is more involved and usually done by solving for the rotation in terms of translations.
-        # For brevity, we'll skip the full implementation here.
-        raise NotImplementedError("Single hinge not yet implemented")
+        E = self.material.E
+        A = self.area
+        I = self.inertia
+        L = self.length
+
+        EA_L = E * A / L
+        EI_L3 = E * I / L**3
+        EI_L2 = E * I / L**2
+        EI_L = E * I / L
+
+        k_beam = super().local_stiffness()
+        if not self.hinge_i and not self.hinge_j:       #if no hinges, return standard beam stiffness
+            return k_beam
+
+        if self.hinge_i and self.hinge_j:               #if both hinges, return zero for moment DOFs
+            k_beam[2, :] = 0.0
+            k_beam[:, 2] = 0.0
+            k_beam[5, :] = 0.0
+            k_beam[:, 5] = 0.0
+            return k_beam
+
+        k_hinge_i = np.zeros((6, 6))
+        k_hinge_i[0, 0] = EA_L
+        k_hinge_i[0, 3] = -EA_L
+        k_hinge_i[3, 0] = -EA_L
+        k_hinge_i[3, 3] = EA_L
+
+        k_hinge_i[1, 1] = 3.0 * EI_L3
+        k_hinge_i[1, 4] = -3.0 * EI_L3
+        k_hinge_i[1, 5] = 3.0 * EI_L2
+
+        k_hinge_i[4, 1] = -3.0 * EI_L3
+        k_hinge_i[4, 4] = 3.0 * EI_L3
+        k_hinge_i[4, 5] = -3.0 * EI_L2
+
+        k_hinge_i[5, 1] = 3.0 * EI_L2
+        k_hinge_i[5, 4] = -3.0 * EI_L2
+        k_hinge_i[5, 5] = 3.0 * EI_L
+
+        if self.hinge_i:                                #if hinge_i only, return k_hinge_i
+            return k_hinge_i
+
+        # hinge_j only -> swap node DOFs from hinge_i form
+        if self.hinge_j:
+            k_hinge_j = np.zeros((6, 6))
+            k_hinge_j[0, 0] = EA_L
+            k_hinge_j[0, 3] = -EA_L
+            k_hinge_j[3, 0] = -EA_L
+            k_hinge_j[3, 3] = EA_L
+
+            k_hinge_j[1, 1] = 3.0 * EI_L3
+            k_hinge_j[1, 2] = 3.0 * EI_L2
+            k_hinge_j[1, 4] = -3.0 * EI_L3
+
+            k_hinge_j[2, 1] = 3.0 * EI_L3
+            k_hinge_j[2, 2] = 3.0 * EI_L
+            k_hinge_j[2, 4] = -3.0 * EI_L2  
+
+            k_hinge_j[4, 1] = -3.0 * EI_L3
+            k_hinge_j[4, 2] = -3.0 * EI_L2
+            k_hinge_j[4, 4] = 3.0 * EI_L3
+            
+            return k_hinge_j
+
+    # def equivalent_nodal_loads(self):
+    #     """
+    #     Return local equivalent nodal loads due to a uniform transverse load
+    #     accounting for moment releases at hinged ends.
+
+    #     Returns
+    #     -------
+    #     numpy.ndarray
+    #         Equivalent nodal load vector (6x1) in local coordinates.
+    #     """
+    #     if not hasattr(self, "w"):
+    #         return np.zeros(6)
+
+    #     w = self.w
+    #     L = self.length
+    #     eq = np.zeros(6)
+    #     eq[1] = w * L / 2
+    #     eq[4] = w * L / 2
+
+    #     if self.hinge_i and self.hinge_j:
+    #         eq[2] = 0.0
+    #         eq[5] = 0.0
+    #     elif self.hinge_i:
+    #         eq[2] = 0.0
+    #         eq[5] = -w * L**2 / 8
+    #     elif self.hinge_j:
+    #         eq[2] = w * L**2 / 8
+    #         eq[5] = 0.0
+    #     else:
+    #         eq[2] = w * L**2 / 12
+    #         eq[5] = -w * L**2 / 12
+
+    #     return eq

@@ -129,16 +129,41 @@ class DistributedLoad(ElementLoad):
     def _compute_equivalent_loads(self):
         """Compute standard fixed-end forces for uniform load in local coordinates."""
         L = self.element.length
+        #fixed end forces for uniform load in local coordinates
+        f0 = self.wx * L / 2
+        f1 = self.wy * L / 2
+        f2 = self.wy * L**2 / 12
+        f3 = self.wx * L / 2
+        f4 = self.wy * L / 2
+        f5 = -self.wy * L**2 / 12
+
         eq_local = np.array(
             [
-                self.wx * L / 2,
-                self.wy * L / 2,
-                self.wy * L**2 / 12,
-                self.wx * L / 2,
-                self.wy * L / 2,
-                -self.wy * L**2 / 12,
+                f0,  # Axial force at node i
+                f1,  # Transverse force at node i
+                f2,  # Moment at node i
+                f3,  # Axial force at node j
+                f4,  # Transverse force at node j
+                f5,  # Moment at node j
             ]
         )
+
+        hinge_i = getattr(self.element, "hinge_i", False)
+        hinge_j = getattr(self.element, "hinge_j", False)
+        if hinge_i or hinge_j:
+            if hinge_i and hinge_j:
+                eq_local[1] = f1 - (f2 + f5)/L  # Adjust transverse force at node i
+            elif hinge_i:
+                eq_local[1] = f1-f2*3/(2*L)  # Adjust transverse force at node i
+                eq_local[2] = 0.0
+                eq_local[4] = f4 + f2*3/(2*L)  # Adjust transverse force at node j
+                eq_local[5] = f5 - f2/2  # Adjust moment at node j
+            elif hinge_j:
+                eq_local[1] = f2-f5*3/(2*L)  # Adjust transverse force at node i
+                eq_local[2] = f2-f5/2  # Adjust moment at node i
+                eq_local[4] = f4 + f5*3/(2*L)
+                eq_local[5] = 0.0
+
         self._transform_and_store_equivalent_loads(eq_local)
 
 
@@ -191,10 +216,10 @@ class ElementPointLoad(ElementLoad):
 
         # Fixed-end forces for a point load in local coordinates
         FAx = (self.px * b) / L
-        FBx = (self.px * a) / L
         FAy = (self.py * b**2 * (3 * a + b)) / L**3
-        FBy = (self.py * a**2 * (a + 3 * b)) / L**3
         MAz = (self.py * a * b**2) / L**2
+        FBx = (self.px * a) / L
+        FBy = (self.py * a**2 * (a + 3 * b)) / L**3
         MBz = -(self.py * a**2 * b) / L**2
 
         # Add moment contributions at nodes
@@ -202,6 +227,23 @@ class ElementPointLoad(ElementLoad):
         MBz += (self.mz * a) / L
 
         eq_local = np.array([FAx, FAy, MAz, FBx, FBy, MBz])
+
+        hinge_i = getattr(self.element, "hinge_i", False)
+        hinge_j = getattr(self.element, "hinge_j", False)
+        if hinge_i or hinge_j:
+            if hinge_i and hinge_j:
+                eq_local[1] = FAy - (MAz + MBz)/L  # Adjust transverse force at node i
+            elif hinge_i:
+                eq_local[1] = FAy - MAz*3/(2*L)  # Adjust transverse force at node i
+                eq_local[2] = 0.0
+                eq_local[4] = FBy + MAz*3/(2*L)  # Adjust transverse force at node j
+                eq_local[5] = MBz - MAz/2  # Adjust moment at node j
+            elif hinge_j:
+                eq_local[1] = FBy - MBz*3/(2*L)  # Adjust transverse force at node i
+                eq_local[2] = FBy - MBz/2  # Adjust moment at node i
+                eq_local[4] = FBy + MBz*3/(2*L)
+                eq_local[5] = 0.0
+
         self._transform_and_store_equivalent_loads(eq_local)
 
 
