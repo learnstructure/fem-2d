@@ -145,42 +145,219 @@ class DrawStructure:
         span : float
             Characteristic structure span for scaling the load arrows and symbols.
         """
+        from fem2d.loads import PointLoad, ElementPointLoad, DistributedLoad
+        
         # Determine max force for scaling arrows
         max_force = 0
+        
+        # Check node loads and structure loads
         for node in self.structure.nodes.values():
             fx, fy, mz = node.load
             max_force = max(max_force, abs(fx), abs(fy))
-        # For UDLs, we need to iterate over loads in structure.loads
-        # Assuming UDLs are stored in structure.loads as DistributedLoad objects
+        
         for load in self.structure.loads:
-            if hasattr(load, "wy") and load.wy != 0:  # vertical UDL
+            if isinstance(load, PointLoad):
+                max_force = max(max_force, abs(load.fx), abs(load.fy))
+            elif isinstance(load, ElementPointLoad):
+                max_force = max(max_force, abs(load.px), abs(load.py))
+            elif isinstance(load, DistributedLoad):
                 el = load.element
-                # Draw small arrows along element
-                n_arrows = 11
+                if load.wx != 0:
+                    max_force = max(max_force, abs(load.wx * el.length))
+                if load.wy != 0:
+                    max_force = max(max_force, abs(load.wy * el.length))
+        
+        # Draw distributed loads (UDLs) - transform from local to global coordinates
+        for load in self.structure.loads:
+            if isinstance(load, DistributedLoad):
+                el = load.element
+                c, s = el.cos, el.sin
+                n_arrows = 10  # Reduced from 11 for better clarity
                 x_i, y_i = el.node_i.x, el.node_i.y
                 x_j, y_j = el.node_j.x, el.node_j.y
+                
+                # Collect arrow tip positions for drawing connecting line
+                arrow_tips_x = []
+                arrow_tips_y = []
+                arrow_head_extension = 0.03 * span  # Extension to account for arrow head
+                
                 for t in np.linspace(0, 1, n_arrows):
+                    # Position along element
                     x = x_i + t * (x_j - x_i)
                     y = y_i + t * (y_j - y_i)
-                    # Arrow direction depends on load sign (positive wy = upward)
-                    dy = 0.05 * span * (1 if load.wy > 0 else -1)
-                    plt.arrow(
-                        x,
-                        y,
-                        0,
-                        dy,
-                        head_width=0.02 * span,
-                        head_length=0.02 * span,
-                        fc="green",
-                        ec="green",
-                        alpha=0.5,
-                    )
-
-        # Point loads at nodes
+                    
+                    # Transform local load (wx, wy) to global (fx, gy)
+                    # Global: fx = wx*c - wy*s,  fy = wx*s + wy*c
+                    fx_local = load.wx
+                    fy_local = load.wy
+                    fx_global = fx_local * c - fy_local * s
+                    fy_global = fx_local * s + fy_local * c
+                    
+                    # Compute arrow length
+                    magnitude = np.hypot(fx_global, fy_global)
+                    if magnitude > 0:
+                        length = self.arrow_scale * span * 0.5  # Adjusted scale
+                        dx = fx_global / magnitude * length
+                        dy = fy_global / magnitude * length
+                    else:
+                        dx = dy = 0
+                    
+                    if magnitude > 0:
+                        # Account for arrow head extending beyond endpoint
+                        direction_x = fx_global / magnitude
+                        direction_y = fy_global / magnitude
+                        # Visual tip includes the arrow head extension
+                        arrow_tip_x = x + dx + direction_x * arrow_head_extension
+                        arrow_tip_y = y + dy + direction_y * arrow_head_extension
+                        arrow_tips_x.append(arrow_tip_x)
+                        arrow_tips_y.append(arrow_tip_y)
+                        
+                        plt.arrow(
+                            x, y, dx, dy,
+                            head_width=0.025 * span,
+                            head_length=0.025 * span,
+                            fc="green",
+                            ec="green",
+                            alpha=0.8,
+                            linewidth=1.0
+                        )
+                
+                # Draw connecting line through arrow tips to show distributed load
+                if len(arrow_tips_x) > 1:
+                    plt.plot(arrow_tips_x, arrow_tips_y, 'g--', linewidth=1.0, alpha=0.8)
+        
+        # Draw point loads at nodes (from structure.loads PointLoad objects)
         arrow_len = self.arrow_scale * span
+        
+        for load in self.structure.loads:
+            if isinstance(load, PointLoad):
+                # PointLoad is already in global coordinates
+                fx, fy, mz = load.fx, load.fy, load.mz
+                node = load.node
+                
+                # Draw force
+                if fx != 0 or fy != 0:
+                    magnitude = np.hypot(fx, fy)
+                    min_length = 1 * arrow_len  # Minimum arrow length for visibility
+                    length = max(
+                        min_length,
+                        arrow_len * (magnitude / max_force) if max_force != 0 else arrow_len
+                    )
+                    dx = fx / magnitude * length
+                    dy = fy / magnitude * length
+                    
+                    # Draw arrow (includes line + head)
+                    arrow = FancyArrowPatch(
+                        (node.x, node.y),
+                        (node.x + dx, node.y + dy),
+                        arrowstyle="->",
+                        color="red",
+                        linewidth=3,
+                        mutation_scale=25
+                    )
+                    plt.gca().add_patch(arrow)
+                
+                # Draw moment
+                if mz != 0:
+                    r = 0.05 * span
+                    if mz > 0:
+                        start_angle, end_angle = 0, 90
+                    else:
+                        start_angle, end_angle = 90, 0
+                    arc = Arc(
+                        (node.x, node.y),
+                        2 * r, 2 * r,
+                        theta1=start_angle,
+                        theta2=end_angle,
+                        edgecolor="red",
+                        linewidth=2
+                    )
+                    plt.gca().add_patch(arc)
+                    angle = np.radians(end_angle)
+                    tip_x = node.x + r * np.cos(angle)
+                    tip_y = node.y + r * np.sin(angle)
+                    arrowhead = Polygon(
+                        [
+                            (tip_x, tip_y),
+                            (tip_x - 0.01 * span, tip_y - 0.01 * span),
+                            (tip_x + 0.01 * span, tip_y - 0.01 * span),
+                        ],
+                        closed=True,
+                        facecolor="red",
+                    )
+                    plt.gca().add_patch(arrowhead)
+        
+        # Draw element point loads - transform from local to global coordinates
+        for load in self.structure.loads:
+            if isinstance(load, ElementPointLoad):
+                el = load.element
+                c, s = el.cos, el.sin
+                
+                # Position of load on element
+                t = load.x / el.length
+                x = el.node_i.x + t * (el.node_j.x - el.node_i.x)
+                y = el.node_i.y + t * (el.node_j.y - el.node_i.y)
+                
+                # Transform local load (px, py) to global (fx, fy)
+                px_local = load.px
+                py_local = load.py
+                fx_global = px_local * c - py_local * s
+                fy_global = px_local * s + py_local * c
+                
+                # Draw force
+                if fx_global != 0 or fy_global != 0:
+                    magnitude = np.hypot(fx_global, fy_global)
+                    length = (
+                        arrow_len * (magnitude / max_force) if max_force != 0 else arrow_len
+                    )
+                    dx = fx_global / magnitude * length
+                    dy = fy_global / magnitude * length
+                    
+                    # Draw arrow (includes line + head)
+                    arrow = FancyArrowPatch(
+                        (x, y),
+                        (x + dx, y + dy),
+                        arrowstyle="->",
+                        color="orange",
+                        linewidth=3,
+                        mutation_scale=25
+                    )
+                    plt.gca().add_patch(arrow)
+                
+                # Draw moment (if any)
+                if load.mz != 0:
+                    r = 0.05 * span
+                    if load.mz > 0:
+                        start_angle, end_angle = 0, 90
+                    else:
+                        start_angle, end_angle = 90, 0
+                    arc = Arc(
+                        (x, y),
+                        2 * r, 2 * r,
+                        theta1=start_angle,
+                        theta2=end_angle,
+                        edgecolor="orange",
+                        linewidth=2
+                    )
+                    plt.gca().add_patch(arc)
+                    angle = np.radians(end_angle)
+                    tip_x = x + r * np.cos(angle)
+                    tip_y = y + r * np.sin(angle)
+                    arrowhead = Polygon(
+                        [
+                            (tip_x, tip_y),
+                            (tip_x - 0.01 * span, tip_y - 0.01 * span),
+                            (tip_x + 0.01 * span, tip_y - 0.01 * span),
+                        ],
+                        closed=True,
+                        facecolor="orange",
+                    )
+                    plt.gca().add_patch(arrowhead)
+        
+        # Draw node loads from node.load attribute
         for node in self.structure.nodes.values():
             fx, fy, mz = node.load
-
+            
             # Force
             if fx != 0 or fy != 0:
                 magnitude = np.hypot(fx, fy)
@@ -189,39 +366,37 @@ class DrawStructure:
                 )
                 dx = fx / magnitude * length
                 dy = fy / magnitude * length
+                
+                # Draw arrow (includes line + head)
                 arrow = FancyArrowPatch(
                     (node.x, node.y),
                     (node.x + dx, node.y + dy),
                     arrowstyle="->",
                     color="red",
-                    linewidth=2,
+                    linewidth=3,
+                    mutation_scale=25
                 )
                 plt.gca().add_patch(arrow)
-
+            
             # Moment
             if mz != 0:
-                # Curved arrow radius
                 r = 0.05 * span
-                # Determine direction: positive -> counter‑clockwise
                 if mz > 0:
                     start_angle, end_angle = 0, 90
                 else:
                     start_angle, end_angle = 90, 0
                 arc = Arc(
                     (node.x, node.y),
-                    2 * r,
-                    2 * r,
+                    2 * r, 2 * r,
                     theta1=start_angle,
                     theta2=end_angle,
                     edgecolor="red",
-                    linewidth=2,
+                    linewidth=2
                 )
                 plt.gca().add_patch(arc)
-                # Add arrowhead at the end
                 angle = np.radians(end_angle)
                 tip_x = node.x + r * np.cos(angle)
                 tip_y = node.y + r * np.sin(angle)
-                # Small triangle
                 arrowhead = Polygon(
                     [
                         (tip_x, tip_y),

@@ -26,6 +26,16 @@ Features
   - **Pandas Integration:** Convert displacements, reactions, and element forces directly into pandas DataFrames for easy analysis and post-processing.
   - **Graphical Plots:** Plot the undeformed/deformed configurations, support conditions, and applied loads using Matplotlib.
 
+Global and Local Axes
+---------------------
+
+**Global Axes:**
+  X (+ve: right), Y (+ve: up), rotation (+ve: counter-clockwise)
+
+**Local Axes:**
+  x (+ve: from node i → node j), y (+ve: upwards when viewing element with left hand at node i and right hand at node j), rotation (+ve: counter-clockwise)
+
+**Note:** Joint loads use global axes; member loads use local axes.
 
 API Reference
 -------------

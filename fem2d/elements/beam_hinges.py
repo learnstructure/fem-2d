@@ -71,11 +71,11 @@ class BeamWithHingesElement(BeamElement):
         if not self.hinge_i and not self.hinge_j:       #if no hinges, return standard beam stiffness
             return k_beam
 
-        if self.hinge_i and self.hinge_j:               #if both hinges, return zero for moment DOFs
-            k_beam[2, :] = 0.0
-            k_beam[:, 2] = 0.0
-            k_beam[5, :] = 0.0
-            k_beam[:, 5] = 0.0
+        if self.hinge_i and self.hinge_j:               #if both hinges, return zero for shear and moment DOFs
+            k_beam[1:3, :] = 0.0
+            k_beam[:, 1:3] = 0.0
+            k_beam[4:6, :] = 0.0
+            k_beam[:, 4:6] = 0.0
             return k_beam
 
         k_hinge_i = np.zeros((6, 6))

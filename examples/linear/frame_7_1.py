@@ -68,8 +68,9 @@ reactions = results.reactions()
 el_forces = results.element_forces()
 
 print(disp)  
+print(el_forces)  
 print(disp["theta"][2])     # result = -0.0013662379393815254
 print(el_forces["m_i"][2])      # result = 304.15771709113193
 
-# drawer = DrawStructure(structure, scale=100)
-# drawer.draw()
+drawer = DrawStructure(structure, scale=10)
+drawer.draw(show_deformed=False)

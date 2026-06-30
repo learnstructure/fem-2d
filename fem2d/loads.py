@@ -153,6 +153,9 @@ class DistributedLoad(ElementLoad):
         if hinge_i or hinge_j:
             if hinge_i and hinge_j:
                 eq_local[1] = f1 - (f2 + f5)/L  # Adjust transverse force at node i
+                eq_local[2] = 0.0
+                eq_local[4] = f4 + (f2 + f5)/L  # Adjust transverse force at node j
+                eq_local[5] = 0.0
             elif hinge_i:
                 eq_local[1] = f1-f2*3/(2*L)  # Adjust transverse force at node i
                 eq_local[2] = 0.0
@@ -233,6 +236,9 @@ class ElementPointLoad(ElementLoad):
         if hinge_i or hinge_j:
             if hinge_i and hinge_j:
                 eq_local[1] = FAy - (MAz + MBz)/L  # Adjust transverse force at node i
+                eq_local[2] = 0.0
+                eq_local[4] = FBy + (MAz + MBz)/L
+                eq_local[5] = 0.0
             elif hinge_i:
                 eq_local[1] = FAy - MAz*3/(2*L)  # Adjust transverse force at node i
                 eq_local[2] = 0.0
