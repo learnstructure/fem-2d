@@ -20,6 +20,7 @@ from .elements.trussNL import TrussElementNL
 from .elements.beamNL import BeamElementNL
 from .utils.simple_frame import SimpleFrame
 from .solver import NewtonRaphsonSolver
+from .buckling_analysis import buckling_analysis
 
 try:
     from .utils.draw_structure import DrawStructure
@@ -40,4 +41,5 @@ __all__ = [
     "SimpleFrame",
     "DrawStructure",
     "NewtonRaphsonSolver",
+    "buckling_analysis",
 ]

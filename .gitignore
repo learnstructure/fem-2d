@@ -30,3 +30,7 @@ paper.pdf
 
 docs/build/
 docs/source/api/
+
+
+.pypirc
+notebooks/

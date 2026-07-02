@@ -1,3 +1,6 @@
+import math
+
+import numpy as np
 import pytest
 from fem2d import (
     SimpleFrame,
@@ -8,9 +11,9 @@ from fem2d import (
     BeamElement,
     BeamWithHingesElement,
     Results,
+    buckling_analysis,
 )
 from fem2d.loads import DistributedLoad, PointLoad, ElementPointLoad
-import math
 
 
 def test_frame_5_1():

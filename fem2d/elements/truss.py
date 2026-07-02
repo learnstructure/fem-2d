@@ -125,6 +125,51 @@ class TrussElement(ElementBase):
         f_local[[0, 1, 3, 4]] = f_local_4
         return f_local
 
+    def axial_force(self):
+        """Return the axial force in the truss element in local coordinates.
+
+        Positive values correspond to compression.
+        """
+        local_forces = self.get_local_forces()
+        # get_local_forces() returns local axial force at node i in the first entry.
+        # In a standard truss sign convention, positive value indicates tension.
+        # For geometric stiffness we need compression positive, so invert the sign.
+        return -local_forces[0]
+
+    def geometric_stiffness(self, axial_force):
+        """Return the 6x6 geometric stiffness matrix for the truss element.
+
+        Parameters
+        ----------
+        axial_force : float
+            Axial force in the element (positive in compression).
+
+        Returns
+        -------
+        numpy.ndarray
+            6x6 geometric stiffness matrix in global coordinates.
+        """
+        N = axial_force
+        if self.length == 0:
+            return np.zeros((6, 6))
+
+        kg_local = (N/self.length) * np.array([
+    [0, 0, 0, 0],
+    [0, 1, 0,-1],
+    [0, 0, 0, 0],
+    [0,-1, 0, 1]
+])
+        # kg_local = (N / self.length) * np.array([[1, 0, -1, 0], [0, 0, 0, 0], [-1, 0, 1, 0], [0, 0, 0, 0]])
+
+        T4 = self.transformation_matrix(dof_per_node=2)
+        kg_global_4 = T4.T @ kg_local @ T4
+        kg_global = np.zeros((6, 6))
+        dof_map = [0, 1, 3, 4]
+        for i, ii in enumerate(dof_map):
+            for j, jj in enumerate(dof_map):
+                kg_global[ii, jj] = kg_global_4[i, j]
+        return kg_global
+
     def deformed_shape_points(self, global_disp, n_points=2, scale=1.0):
         """
         Return end point coordinates representing the deformed shape of the truss.

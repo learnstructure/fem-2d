@@ -1,5 +1,5 @@
 # Example 4.3: Logan D. L. (2022), A First Course in the Finite Element Method
-# units in kips, inches
+# units in kN, m
 
 from fem2d import (
     SimpleFrame,

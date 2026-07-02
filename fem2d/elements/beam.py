@@ -267,3 +267,51 @@ class BeamElement(ElementBase):
         T = self.transformation_matrix()
         m_global = T.T @ m_local @ T
         return m_global
+
+    def axial_force(self):
+        """Return the axial force in the beam element in local coordinates.
+
+        Positive value corresponds to compression for buckling sign convention.
+        """
+        f_local = self.get_local_forces()
+        # f_local[0] is axial force at node i (positive in tension for stiffness)
+        # invert sign so compression is positive
+        return -f_local[0]
+
+    def geometric_stiffness(self, axial_force):
+        """Return the 6x6 geometric stiffness matrix (local->global) for the beam.
+
+        Uses the standard Euler-Bernoulli beam geometric stiffness for axial
+        compression P (positive in compression):
+
+            Kg_local = (P / (30*L)) * [
+                [0,   0,    0,    0,    0,    0],
+                [0,  36,   3L,    0,  -36,   3L],
+                [0, 3L,  4L^2,   0,  -3L,  -L^2],
+                [0,   0,    0,    0,    0,    0],
+                [0, -36,  -3L,   0,   36,  -3L],
+                [0,  3L,  -L^2,  0,  -3L,  4L^2]
+            ]
+
+        The returned matrix is in global coordinates.
+        """
+        P = axial_force
+        L = self.length
+        if L == 0:
+            return np.zeros((6, 6))
+
+        factor = P / (30.0 * L)
+        kg_local = factor * np.array(
+            [
+                [0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+                [0.0, 36.0, 3.0 * L, 0.0, -36.0, 3.0 * L],
+                [0.0, 3.0 * L, 4.0 * L * L, 0.0, -3.0 * L, -1.0 * L * L],
+                [0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+                [0.0, -36.0, -3.0 * L, 0.0, 36.0, -3.0 * L],
+                [0.0, 3.0 * L, -1.0 * L * L, 0.0, -3.0 * L, 4.0 * L * L],
+            ]
+        )
+
+        T = self.transformation_matrix()
+        kg_global = T.T @ kg_local @ T
+        return kg_global
