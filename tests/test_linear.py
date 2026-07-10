@@ -16,6 +16,39 @@ from fem2d import (
 from fem2d.loads import DistributedLoad, PointLoad, ElementPointLoad
 
 
+def test_create_report_contains_analysis_summary():
+    frame = SimpleFrame()
+    frame.add_node(1, 0, 0)
+    frame.add_node(2, 0, 10 * 12)
+    frame.add_node(3, 10 * 12, 10 * 12)
+    frame.add_node(4, 10 * 12, 0)
+
+    E, A = 30e3, 10
+    I = 200
+
+    frame.add_frame(1, 1, 2, E, A, I)
+    frame.add_frame(2, 2, 3, E, A, I / 2)
+    frame.add_frame(3, 3, 4, E, A, I)
+
+    frame.add_support(1, [1, 1, 1])
+    frame.add_support(4, [1, 1, 1])
+
+    frame.add_node_load(2, [10, 0, 0])
+    frame.add_node_load(3, [0, 0, 5])
+
+    frame.solve()
+
+    results = Results(frame)
+    report = results.create_report(print_report=False)
+
+    assert "Structural analysis report" in report
+    assert "Element reports" in report
+    assert "Structure stiffness matrix" in report
+    assert "Reduced structure stiffness matrix" in report
+    assert "Displacements" in report
+    assert "Reactions" in report
+
+
 def test_frame_5_1():
     # Example 5.1: Logan D. L. (2017), A First Course in the Finite Element Method
     # units in kips, inches

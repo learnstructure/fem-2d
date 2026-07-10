@@ -9,12 +9,11 @@ node3 = Node(3, 8.0, 0.0)
 # 2. Material properties
 E = 70e6  
 A = 645.6e-6
-I = 0.3794e-6  # m^4
+I = 0.379389e-6  # m^4
 
 material = ElasticMaterial(E)
 
 # 3. Create beam elements
-
 elem1 = BeamElement(1, node1, node2, material, A, I)
 elem2 = BeamElement(2, node2, node3, material, A, I)
 elem3 = BeamElement(3, node3, node1, material, A, I)
@@ -28,12 +27,12 @@ structure.add_element(elem1)
 structure.add_element(elem2)
 structure.add_element(elem3)
 
-# 5. Apply supports – FIX ROTATIONS FOR ALL NODES!
+# 5. Apply supports 
 node1.set_support(ux_fixed=True, uy_fixed=True)  # pinned
 node3.set_support(ux_fixed=False, uy_fixed=True)  # roller
 
 # 6. Apply external load
-node2.set_load(fx=0.0, fy=10.0, mz=0.0)
+node2.set_load(fx=0.0, fy=-10.0, mz=0.0)
 
 # 7. Run anaysis
 structure.solve()
@@ -44,4 +43,5 @@ structure.solve()
 # 8. Perform buckling analysis
 factors, modes = buckling_analysis(structure, num_modes=2)
 
-print("Buckling Factors:\n", factors)
+print("Buckling Factors:\n", factors)       # result = [ 2.87630061 -8.3502087 ]
+# print("Buckling Modes:\n", modes)

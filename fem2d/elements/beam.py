@@ -274,9 +274,7 @@ class BeamElement(ElementBase):
         Positive value corresponds to compression for buckling sign convention.
         """
         f_local = self.get_local_forces()
-        # f_local[0] is axial force at node i (positive in tension for stiffness)
-        # invert sign so compression is positive
-        return -f_local[0]
+        return f_local[0]
 
     def geometric_stiffness(self, axial_force):
         """Return the 6x6 geometric stiffness matrix (local->global) for the beam.

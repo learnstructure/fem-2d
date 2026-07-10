@@ -44,3 +44,5 @@ print(el_forces["fy_i"][1])  # result = 5.555555555555557
 #     frame.structure, scale=5
 # )  # scale displacements by 100 for visibility
 # drawer.draw()
+
+# results.create_report()

@@ -74,3 +74,5 @@ print(el_forces["m_i"][2])      # result = 304.15771709113193
 
 drawer = DrawStructure(structure, scale=10)
 drawer.draw(show_deformed=False)
+
+# results.create_report()

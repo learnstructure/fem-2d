@@ -38,6 +38,7 @@ def _assemble_geometric_stiffness(structure):
 
         # axial force: compression positive (according to our convention)
         N = el.axial_force()
+        print(f"Element {el.id}: Axial force N = {N:.4f}")
         Kg_el = el.geometric_stiffness(N)   # now returns positive definite for compression
 
         dofs = el.node_i.dofs + el.node_j.dofs

@@ -131,10 +131,7 @@ class TrussElement(ElementBase):
         Positive values correspond to compression.
         """
         local_forces = self.get_local_forces()
-        # get_local_forces() returns local axial force at node i in the first entry.
-        # In a standard truss sign convention, positive value indicates tension.
-        # For geometric stiffness we need compression positive, so invert the sign.
-        return -local_forces[0]
+        return local_forces[0]      #compression positive for buckling analysis
 
     def geometric_stiffness(self, axial_force):
         """Return the 6x6 geometric stiffness matrix for the truss element.

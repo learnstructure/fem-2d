@@ -1,4 +1,10 @@
 # FEM2D
+
+[![PyPI version](https://img.shields.io/pypi/v/fem2d)](https://pypi.org/project/fem2d)
+[![Downloads](https://static.pepy.tech/badge/fem2d)](https://pepy.tech/project/fem2d)
+[![GitHub repo](https://img.shields.io/badge/GitHub-fem--2d-blue?logo=github)](https://github.com/learnstructure/fem-2d)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
 An open-source Python library for structural finite element analysis of 2D structures.
 
 **FEM2D** is a Python package for performing 2D finite element analysis (FEA) of structural frames, including truss, beam, and spring elements with support for linear static analysis, geometrically non-linear analysis, and global mass matrix assembly for dynamic analysis.
@@ -153,7 +159,7 @@ pytest
 If you use `fem2d` in your academic research or professional work, please cite it as follows:
 
 ```
-Mandal, A. (2026). FEM2D: An open-source Python library for structural analysis of 2D structures (v0.2.1). Zenodo. https://doi.org/10.5281/zenodo.20990850
+Mandal, A. (2026). FEM2D: An open-source Python library for structural analysis of 2D structures (v0.2.2). Zenodo. https://doi.org/10.5281/zenodo.20990850
 ```
 
 Refer to [CITATION.cff](CITATION.cff) for the BibTeX format details.

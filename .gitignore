@@ -34,3 +34,5 @@ docs/source/api/
 
 .pypirc
 notebooks/
+
+examples/non_linear/truss_buckling.py
