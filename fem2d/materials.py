@@ -1,31 +1,15 @@
 """
-Materials module defining material properties for structural elements.
+Deprecated. Redirects imports to the new fem2d/materials package.
 """
 
+from fem2d.materials.material import UniaxialMaterial
+from fem2d.materials.elastic import ElasticMaterial
+from fem2d.materials.bilinear import BilinearMaterial
+from fem2d.materials.csv_material import CSVMaterial
 
-class ElasticMaterial:
-    """
-    Represents an elastic material with stiffness and density properties.
-
-    Attributes
-    ----------
-    E : float
-        Young's Modulus of the material.
-    rho : float, optional
-        Mass density (mass per unit volume) of the material. Defaults to 0.0.
-    """
-
-    def __init__(self, E, rho=0.0):
-        """
-        Initialize an ElasticMaterial object.
-
-        Parameters
-        ----------
-        E : float
-            Young's Modulus of the material.
-        rho : float, optional
-            Mass density (mass per unit volume) of the material. Defaults to 0.0.
-        """
-        self.E = E
-        self.rho = rho  # mass density (mass per unit volume)
-
+__all__ = [
+    "UniaxialMaterial",
+    "ElasticMaterial",
+    "BilinearMaterial",
+    "CSVMaterial",
+]

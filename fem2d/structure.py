@@ -154,7 +154,7 @@ class Structure:
             ]
 
             is_beam_connected = any(
-                isinstance(el, BeamElement) for el in connected_elements
+                "Beam" in type(el).__name__ for el in connected_elements
             )
             if is_beam_connected:
                 continue
@@ -199,12 +199,12 @@ class Structure:
                 - self.F[self.fixed_dofs]
             )
 
-    def solve_nonlinear(self, tolerance=1e-8, max_iter=30):
+    def solve_nonlinear(self, tolerance=1e-8, max_iter=30, n_steps=1):
         """
-        Perform geometrically nonlinear analysis using Newton-Raphson.
+        Perform non-linear static analysis using Newton-Raphson.
 
-        Assumes all elements implement the nonlinear interface
-        (update_state, get_tangent_stiffness, get_internal_forces).
+        Supports geometric and/or material non-linear behavior. For path-dependent
+        material models, the load is applied incrementally in n_steps.
 
         Parameters
         ----------
@@ -212,22 +212,42 @@ class Structure:
             Convergence tolerance. Defaults to 1e-8.
         max_iter : int, optional
             Maximum iterations. Defaults to 30.
+        n_steps : int, optional
+            Number of load increments. Defaults to 1.
         """
         # Ensure DOFs are numbered and boundary conditions are known
         self.number_dofs()
         self.apply_boundary_conditions()
         # Assemble external load vector from nodal and element loads
         self.assemble_loads()
-        P_ext = self.F.copy()  # external loads (full vector)
+        P_ext_full = self.F.copy()  # external loads (full vector)
 
-        # Create solver and run
-        from .solver import NewtonRaphsonSolver  # adjust import as needed
+        # Create solver
+        from .solver import NewtonRaphsonSolver
 
-        solver = NewtonRaphsonSolver(self, tolerance, max_iter)
-        self.disp = solver.solve(P_ext)
+        self.disp = np.zeros(self.neq)
 
-        # Compute reactions after convergence
+        # Incremental load stepping
+        for step in range(n_steps):
+            factor = (step + 1) / n_steps
+            P_ext_step = P_ext_full * factor
+            if n_steps > 1:
+                print(f"--- Load Step {step+1}/{n_steps} (Load Factor: {factor:.2f}) ---")
+
+            solver = NewtonRaphsonSolver(self, tolerance, max_iter)
+            self.disp = solver.solve(P_ext_step, d_init=self.disp)
+
+            # Commit element/material state variables for this step
+            self.commit_state()
+
+        # Compute reactions after convergence of the final step
         self._compute_reactions_nonlinear()
+
+    def commit_state(self):
+        """Commit history/state variables of all elements (e.g. plastic strains)."""
+        for el in self.elements.values():
+            if hasattr(el, "commit_state"):
+                el.commit_state()
 
     def _compute_reactions_nonlinear(self):
         """Assemble internal forces at fixed DOFs to obtain reaction forces."""

@@ -36,7 +36,7 @@ class NewtonRaphsonSolver:
         self.tol = tolerance
         self.max_iter = max_iter
 
-    def solve(self, P_ext):
+    def solve(self, P_ext, d_init=None):
         """
         Solve for non-linear displacements given external force vector.
 
@@ -44,13 +44,18 @@ class NewtonRaphsonSolver:
         ----------
         P_ext : numpy.ndarray
             External force vector for all degrees of freedom.
+        d_init : numpy.ndarray, optional
+            Initial guess for displacements. If None, starts from zero.
 
         Returns
         -------
         numpy.ndarray
             Converged displacement vector for all degrees of freedom.
         """
-        d = np.zeros(self.structure.neq)  # current displacements
+        if d_init is not None:
+            d = d_init.copy()
+        else:
+            d = np.zeros(self.structure.neq)  # current displacements
 
         for iteration in range(self.max_iter):
             # Assemble internal forces and tangent stiffness
@@ -67,9 +72,9 @@ class NewtonRaphsonSolver:
             delta_U = P_ext[self.structure.free_dofs] - f_int[self.structure.free_dofs]
 
             # Check convergence (norm of unbalanced forces)
-            if np.linalg.norm(delta_U) < self.tol * np.linalg.norm(
-                P_ext[self.structure.free_dofs]
-            ):
+            norm_ext = np.linalg.norm(P_ext[self.structure.free_dofs])
+            ref_norm = max(norm_ext, 1.0) if norm_ext < 1e-12 else norm_ext
+            if np.linalg.norm(delta_U) < self.tol * ref_norm:
                 print(f"Converged in {iteration+1} iterations")
                 break
 

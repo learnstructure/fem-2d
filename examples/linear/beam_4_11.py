@@ -72,4 +72,4 @@ print(el_forces["m_j"][2])  #result = 3.928571428571429
 # drawer = DrawStructure(structure, scale=100)
 # drawer.draw()
 
-# results.create_report()
+results.create_report()
