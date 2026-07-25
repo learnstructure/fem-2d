@@ -18,7 +18,7 @@ class Section:
         Moment of inertia (second moment of area).
     """
 
-    def __init__(self, area, moi):
+    def __init__(self, area, moi=0.0):
         """
         Initialize a Section object.
 
@@ -26,8 +26,8 @@ class Section:
         ----------
         area : float
             Cross-sectional area.
-        moi : float
-            Moment of inertia (second moment of area).
+        moi : float, optional
+            Moment of inertia (second moment of area). Defaults to 0.0.
         """
         self.A = area
         self.I = moi

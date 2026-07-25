@@ -20,7 +20,7 @@ class BeamWithHingesElement(BeamElement):
     """
 
     def __init__(
-        self, eid, node_i, node_j, material, area, inertia, hinge_i=False, hinge_j=False
+        self, eid, node_i, node_j, material, section, hinge_i=False, hinge_j=False
     ):
         """
         Initialize a BeamWithHingesElement.
@@ -35,16 +35,14 @@ class BeamWithHingesElement(BeamElement):
             End node.
         material : ElasticMaterial
             Material definition.
-        area : float
-            Cross-sectional area.
-        inertia : float
-            Moment of inertia.
+        section : Section
+            Section definition.
         hinge_i : bool, optional
             Whether end i has a hinge. Defaults to False.
         hinge_j : bool, optional
             Whether end j has a hinge. Defaults to False.
         """
-        super().__init__(eid, node_i, node_j, material, area, inertia)
+        super().__init__(eid, node_i, node_j, material, section)
         self.hinge_i = hinge_i
         self.hinge_j = hinge_j
 

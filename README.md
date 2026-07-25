@@ -15,13 +15,13 @@ Documentation: [![Documentation Status](https://readthedocs.org/projects/fem2d/b
 ## Features
 
 - **Element Library:**
-  - **Beam Element:** Elastic 2D Euler-Bernoulli beam elements including axial, shear, and bending stiffness. Supports uniform and varying member loads, moment releases (hinges), and rotational/translational mass.
-  - **Truss Element:** Pin-jointed bar elements with axial stiffness only.
+  - **Beam Element:** Elastic 2D Euler-Bernoulli beam elements including axial and bending stiffness (shear deformation is neglected). Supports uniform and varying member loads, moment releases (hinges), and rotational/translational mass.
+  - **Truss Element:** Pin-jointed bar elements with axial stiffness only. The same `TrussElement` class is used for linear and corotational geometrically-nonlinear analyses.
   - **Spring Element:** 2D elastic spring elements with customizable axial stiffness.
 - **Analysis Types:**
   - **Linear Static Analysis:** Standard matrix analysis under nodal loads, distributed loads, and concentrated member loads.
-  - **Geometrically Non-Linear Analysis:** Iterative solver using the Newton-Raphson scheme combined with corotational formulations for large displacement/rotation problems.
-  - **Mass Matrix Assembly:** Assemblies global mass matrices (including rotational inertia and extra non-structural mass) to support modal and eigenvalue analysis.
+  - **Geometrically Non-Linear Analysis:** Iterative solver using the Newton-Raphson scheme combined with corotational formulations for large displacement/rotation problems. Enabled by passing `geometric_nonlinear=True` to `Structure.solve(...)`.
+  - **Mass Matrix Assembly:** Assembles global mass matrices (including rotational inertia and extra non-structural mass) to support modal and eigenvalue analysis.
 - **Post-Processing & Visualization:**
   - **Pandas Integration:** Convert displacements, reactions, and element forces directly into pandas DataFrames for easy analysis and post-processing.
   - **Graphical Plots:** Plot the undeformed/deformed configurations, support conditions, and applied loads using Matplotlib.
@@ -90,12 +90,15 @@ print("Element End Forces:\n", results.element_forces())
 
 ### 2. Geometrically Non-Linear Truss Analysis
 
-For advanced analyses, use the core `Structure` class with non-linear element formulations.
+For advanced analyses, use the core `Structure` class. The same
+`TrussElement` is used for both linear and corotational geometrically
+non-linear analyses — pass `geometric_nonlinear=True` to
+`Structure.solve(...)` to switch on the corotational formulation.
 
 ```python
-from fem2d import Structure, Node, ElasticMaterial
-from fem2d.elements.trussNL import TrussElementNL
+from fem2d import Structure, Node, ElasticMaterial, TrussElement
 from fem2d.results import Results
+from fem2d.sections import Section
 
 # Create structure and nodes
 structure = Structure()
@@ -107,29 +110,32 @@ structure.add_node(node1)
 structure.add_node(node2)
 structure.add_node(node3)
 
-# Materials and sections
-E = 200e6     # Material Modulus (kN/m^2)
-Area = 0.00022577  # Cross-sectional area (m^2)
+# Material and section
+E = 200e6              # Material modulus (kN/m^2)
+EA = 45155.0           # axial stiffness (kN)
+A = EA / E             # cross-sectional area (m^2)
 material = ElasticMaterial(E)
+section = Section(A)
 
-# Create non-linear truss elements and add to structure
-structure.add_element(TrussElementNL(1, node1, node2, material, Area))
-structure.add_element(TrussElementNL(2, node2, node3, material, Area))
-structure.add_element(TrussElementNL(3, node3, node1, material, Area))
+# Add linear truss elements (corotational path is enabled via solve below)
+structure.add_element(TrussElement(1, node1, node2, material, section))
+structure.add_element(TrussElement(2, node2, node3, material, section))
+structure.add_element(TrussElement(3, node3, node1, material, section))
 
-# Support boundaries
-node1.set_support(ux_fixed=True, uy_fixed=True)   # Pinned support
-node3.set_support(ux_fixed=False, uy_fixed=True)  # Roller support
+# Support boundaries — compact (ux, uy) form
+node1.set_support(1, 1)  # pinned
+node3.set_support(0, 1)  # roller
 
 # External vertical point force at Node 2
 node2.set_load(fx=0.0, fy=-2000.0, mz=0.0)
 
-# Run non-linear Newton-Raphson analysis
-structure.solve_nonlinear(tolerance=1e-8, max_iter=30)
+# Run Newton-Raphson analysis with corotational formulation
+structure.solve(geometric_nonlinear=True, tolerance=1e-8, max_iter=30)
 
-# Print displacements
+# Print displacements and forces
 results = Results(structure)
 print(results.node_displacements())
+print(results.element_forces())
 ```
 
 ### 3. Visualizing Structures
@@ -159,7 +165,7 @@ pytest
 If you use `fem2d` in your academic research or professional work, please cite it as follows:
 
 ```
-Mandal, A. (2026). FEM2D: An open-source Python library for structural analysis of 2D structures (v0.2.2). Zenodo. https://doi.org/10.5281/zenodo.20990850
+Mandal, A. (2026). FEM2D: An open-source Python library for structural analysis of 2D structures (v0.4.0). Zenodo. https://doi.org/10.5281/zenodo.20990850
 ```
 
 Refer to [CITATION.cff](CITATION.cff) for the BibTeX format details.

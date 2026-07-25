@@ -27,11 +27,11 @@ material = ElasticMaterial(E)  # same material for all elements
 section = Section(A, I)
 
 # 3. Create elements
-# elem1 = BeamElement(1, node1, node2, material, section.A, section.I)
-# elem2 = BeamWithHingesElement(2, node2, node3, material, section.A, section.I, hinge_i=True, hinge_j=False)
-elem1 = BeamWithHingesElement(1, node1, node2, material, section.A, section.I, hinge_i=False, hinge_j=True)
-elem2 = BeamElement(2, node2, node3, material, section.A, section.I)
-elem3 = BeamElement(3, node3, node4, material, section.A, section.I)
+# elem1 = BeamElement(1, node1, node2, material, section)
+# elem2 = BeamWithHingesElement(2, node2, node3, material, section, hinge_i=True, hinge_j=False)
+elem1 = BeamWithHingesElement(1, node1, node2, material, section, hinge_i=False, hinge_j=True)
+elem2 = BeamElement(2, node2, node3, material, section)
+elem3 = BeamElement(3, node3, node4, material, section)
 
 # 4. Create structure and add nodes/elements
 structure = Structure()
@@ -72,7 +72,7 @@ print(el_forces)
 print(disp["theta"][2])     # result = -0.0013662379393815254
 print(el_forces["m_i"][2])      # result = 304.15771709113193
 
-drawer = DrawStructure(structure, scale=10)
-drawer.draw(show_deformed=False)
+# drawer = DrawStructure(structure, scale=10)
+# drawer.draw(show_deformed=False)
 
 # results.create_report()

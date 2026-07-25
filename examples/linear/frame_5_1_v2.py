@@ -30,9 +30,9 @@ section_full = Section(A, I_full)
 section_half = Section(A, I_half)
 
 # 3. Create elements
-elem1 = BeamElement(1, node1, node2, material, section_full.A, section_full.I)
-elem2 = BeamElement(2, node2, node3, material, section_half.A, section_half.I)
-elem3 = BeamElement(3, node3, node4, material, section_full.A, section_full.I)
+elem1 = BeamElement(1, node1, node2, material, section_full)
+elem2 = BeamElement(2, node2, node3, material, section_half)
+elem3 = BeamElement(3, node3, node4, material, section_full)
 
 # 4. Create structure and add nodes/elements
 structure = Structure()

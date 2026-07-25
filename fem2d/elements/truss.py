@@ -20,7 +20,16 @@ class TrussElement(ElementBase):
         Additional distributed mass per unit length.
     """
 
-    def __init__(self, eid, node_i, node_j, material, area, extra_mass=0.0):
+    def __init__(
+        self,
+        eid,
+        node_i,
+        node_j,
+        material,
+        section,
+        extra_mass=0.0,
+        geometric_nonlinear=False,
+    ):
         """
         Initialize a TrussElement.
 
@@ -32,17 +41,49 @@ class TrussElement(ElementBase):
             Start node.
         node_j : Node
             End node.
-        material : ElasticMaterial or None
+        material : ElasticMaterial or UniaxialMaterial
             Material definition.
-        area : float or None
-            Cross-sectional area.
+        section : Section
+            Section definition (containing area A).
         extra_mass : float, optional
             Additional distributed mass per unit length. Defaults to 0.0.
+        geometric_nonlinear : bool, optional
+            Whether to use corotational geometric non-linear formulation. Defaults to False.
         """
         super().__init__(eid, node_i, node_j)
-        self.material = material
-        self.area = area
-        self.extra_mass = extra_mass  # kg/m additional distributed mass
+
+        if hasattr(section, "A"):
+            self.section = section
+            self.area = section.A
+            self.material = material
+        elif hasattr(material, "A"):
+            self.section = material
+            self.area = material.A
+            self.material = getattr(material, "material", None)
+            if isinstance(section, (int, float)):
+                extra_mass = float(section)
+        elif isinstance(section, (int, float)):
+            from fem2d.sections.section import Section
+            area_val = float(section)
+            self.section = Section(area_val)
+            self.area = area_val
+            self.material = material
+        else:
+            self.material = material
+            self.section = section
+            self.area = getattr(section, "A", None)
+
+        self.extra_mass = extra_mass
+        self.geometric_nonlinear = geometric_nonlinear
+
+        # Initial length and state variables
+        self.L0 = self.length
+        self.Q = 0.0
+        self.cx = self.cos
+        self.cy = self.sin
+        self.L = self.L0
+        self.k_t = None
+        self.F_global = None
 
     def local_stiffness(self):
         """
@@ -53,7 +94,8 @@ class TrussElement(ElementBase):
         numpy.ndarray
             4x4 stiffness matrix.
         """
-        k = self.area * self.material.E / self.length
+        E = self.material.E if self.material is not None else 1.0
+        k = self.area * E / self.length
         return np.array([[k, 0, -k, 0], [0, 0, 0, 0], [-k, 0, k, 0], [0, 0, 0, 0]])
 
     def global_stiffness(self):
@@ -66,12 +108,10 @@ class TrussElement(ElementBase):
         numpy.ndarray
             6x6 global stiffness matrix.
         """
-        # Expand 4x4 to 6x6 (insert axial DOFs at positions 0,1 and 3,4)
         k_local = self.local_stiffness()
-        T4 = self.transformation_matrix(dof_per_node=2)  # custom 4x4 T
+        T4 = self.transformation_matrix(dof_per_node=2)
         k_global_4 = T4.T @ k_local @ T4
         k_global = np.zeros((6, 6))
-        # Map: local [u1,v1,u2,v2] -> global indices [0,1,3,4] of 6x6
         dof_map = [0, 1, 3, 4]
         for i, ii in enumerate(dof_map):
             for j, jj in enumerate(dof_map):
@@ -80,12 +120,7 @@ class TrussElement(ElementBase):
 
     def transformation_matrix(self, dof_per_node=2):
         """
-        Return the transformation matrix from local to global coordinates.
-
-        Parameters
-        ----------
-        dof_per_node : int, optional
-            Number of degrees of freedom per node. Defaults to 2.
+        Return the 4x4 transformation matrix from local to global coordinates.
 
         Returns
         -------
@@ -96,34 +131,114 @@ class TrussElement(ElementBase):
         s = self.sin
         return np.array([[c, s, 0, 0], [-s, c, 0, 0], [0, 0, c, s], [0, 0, -s, c]])
 
+    def update_state(self, global_disp):
+        """
+        Update internal force and stiffness matrix given global displacement vector.
+
+        Parameters
+        ----------
+        global_disp : numpy.ndarray
+            Full global displacement vector of the structure.
+        """
+        if self.geometric_nonlinear:
+            # Corotational geometrically non-linear formulation
+            u_i = global_disp[self.node_i.dofs]  # [ux, uy, rz]
+            u_j = global_disp[self.node_j.dofs]
+
+            x_i = self.node_i.x + u_i[0]
+            y_i = self.node_i.y + u_i[1]
+            x_j = self.node_j.x + u_j[0]
+            y_j = self.node_j.y + u_j[1]
+
+            dx = x_j - x_i
+            dy = y_j - y_i
+            self.L = np.hypot(dx, dy)
+            if self.L == 0:
+                self.cx = 1.0
+                self.cy = 0.0
+            else:
+                self.cx = dx / self.L
+                self.cy = dy / self.L
+
+            u = self.L0 - self.L
+            E = self.material.E if self.material is not None else 1.0
+            self.Q = (E * self.area / self.L0) * u
+
+            F = np.array(
+                [self.cx * self.Q, self.cy * self.Q, -self.cx * self.Q, -self.cy * self.Q]
+            )
+
+            self.F_global = np.zeros(6)
+            self.F_global[[0, 1, 3, 4]] = F
+
+            EA_L = E * self.area / self.L0
+            Q_L = self.Q / self.L
+            c = self.cx
+            s = self.cy
+
+            ke_local = EA_L * np.array(
+                [
+                    [c * c, c * s, -c * c, -c * s],
+                    [c * s, s * s, -c * s, -s * s],
+                    [-c * c, -c * s, c * c, c * s],
+                    [-c * s, -s * s, c * s, s * s],
+                ]
+            )
+
+            kg_local = Q_L * np.array(
+                [
+                    [-s * s, c * s, s * s, -c * s],
+                    [c * s, -c * c, -c * s, c * c],
+                    [s * s, -c * s, -s * s, c * s],
+                    [-c * s, c * c, c * s, -c * c],
+                ]
+            )
+
+            k_t_local = ke_local + kg_local
+
+            self.k_t = np.zeros((6, 6))
+            idx = [0, 1, 3, 4]
+            for i, ii in enumerate(idx):
+                for j, jj in enumerate(idx):
+                    self.k_t[ii, jj] = k_t_local[i, j]
+        else:
+            # Linear state update
+            u_i = global_disp[self.node_i.dofs]
+            u_j = global_disp[self.node_j.dofs]
+            u_global = np.concatenate([u_i, u_j])
+            K_g = self.global_stiffness()
+            self.F_global = K_g @ u_global
+            self.k_t = K_g
+
+    def get_tangent_stiffness(self):
+        """Return global tangent stiffness matrix of the element."""
+        if hasattr(self, "k_t") and self.k_t is not None:
+            return self.k_t
+        return self.global_stiffness()
+
+    def get_internal_forces(self):
+        """Return global internal forces vector of the element."""
+        if hasattr(self, "F_global") and self.F_global is not None:
+            return self.F_global
+        return np.zeros(6)
+
     def get_local_forces(self):
-        """
-        Compute and return the local member end forces.
+        """Compute and return local end forces."""
+        if self.geometric_nonlinear and hasattr(self, "Q"):
+            return np.array([self.Q, 0.0, 0.0, -self.Q, 0.0, 0.0])
 
-        Returns
-        -------
-        numpy.ndarray
-            6-component vector [Fx_i, Fy_i, Mz_i, Fx_j, Fy_j, Mz_j] in local coordinates.
-        """
-        # Get global displacements
-        u_i = self.structure.disp[self.node_i.dofs]  # [ux, uy, rz]
-        u_j = self.structure.disp[self.node_j.dofs]
-        u_global = np.concatenate([u_i, u_j])  # 6×1
-
-        # Transform to local (using 4×4 transformation for a truss)
-        T4 = self.transformation_matrix()  # 4×4
-        # Extract only translational DOFs from global (positions 0,1,3,4)
-        u_global_4 = u_global[[0, 1, 3, 4]]  # 4×1
-        u_local_4 = T4 @ u_global_4  # 4×1
-
-        # Compute local forces (4×1)
-        k_local_4 = self.local_stiffness()  # 4×4
-        f_local_4 = k_local_4 @ u_local_4
-
-        # Expand to 6×1 (insert zeros for moments)
-        f_local = np.zeros(6)
-        f_local[[0, 1, 3, 4]] = f_local_4
-        return f_local
+        if hasattr(self, "structure") and self.structure is not None and self.structure.disp is not None:
+            u_i = self.structure.disp[self.node_i.dofs]
+            u_j = self.structure.disp[self.node_j.dofs]
+            u_global = np.concatenate([u_i, u_j])
+            T4 = self.transformation_matrix()
+            u_global_4 = u_global[[0, 1, 3, 4]]
+            u_local_4 = T4 @ u_global_4
+            f_local_4 = self.local_stiffness() @ u_local_4
+            f_local = np.zeros(6)
+            f_local[[0, 1, 3, 4]] = f_local_4
+            return f_local
+        return np.zeros(6)
 
     def axial_force(self):
         """Return the axial force in the truss element in local coordinates.

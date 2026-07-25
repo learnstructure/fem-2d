@@ -75,7 +75,7 @@ class SimpleFrame:
         node_j = self.structure.nodes[node_j_id]
         material = ElasticMaterial(E)
         section = Section(A, I)
-        elem = BeamElement(id, node_i, node_j, material, A, I)
+        elem = BeamElement(id, node_i, node_j, material, section)
         self.structure.add_element(elem)
 
     def add_truss(self, id, node_i_id, node_j_id, E, A):
@@ -98,8 +98,8 @@ class SimpleFrame:
         node_i = self.structure.nodes[node_i_id]
         node_j = self.structure.nodes[node_j_id]
         material = ElasticMaterial(E)
-        # section = Section(A, I)
-        elem = TrussElement(id, node_i, node_j, material, A)
+        section = Section(A)
+        elem = TrussElement(id, node_i, node_j, material, section)
         self.structure.add_element(elem)
 
     def add_spring(self, id, node_i_id, node_j_id, stiffness):

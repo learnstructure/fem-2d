@@ -171,7 +171,57 @@ class Structure:
                 # Fix rotation for truss-only nodes (original logic)
                 node.support[2] = True
 
-    def solve(self):
+    def solve(
+        self,
+        geometric_nonlinear=False,
+        material_nonlinear=False,
+        n_steps=1,
+        tolerance=1e-8,
+        max_iter=30,
+    ):
+        """
+        Perform static analysis on the structure (linear or non-linear).
+
+        Parameters
+        ----------
+        geometric_nonlinear : bool, optional
+            Whether to include large displacement geometric non-linear effects. Defaults to False.
+        material_nonlinear : bool, optional
+            Whether material non-linear behavior is present. Defaults to False.
+        n_steps : int, optional
+            Number of load increments for non-linear analysis. Defaults to 1.
+        tolerance : float, optional
+            Convergence tolerance for non-linear solver. Defaults to 1e-8.
+        max_iter : int, optional
+            Maximum iterations per load step in non-linear solver. Defaults to 30.
+        """
+        if geometric_nonlinear:
+            for el in self.elements.values():
+                if hasattr(el, "geometric_nonlinear"):
+                    el.geometric_nonlinear = True
+
+        is_nonlinear = (
+            geometric_nonlinear
+            or material_nonlinear
+            or n_steps > 1
+            or any(
+                getattr(el, "geometric_nonlinear", False)
+                for el in self.elements.values()
+            )
+            or any(
+                hasattr(el, "section") and hasattr(el.section, "fibers")
+                for el in self.elements.values()
+            )
+        )
+
+        if is_nonlinear:
+            self.solve_nonlinear(
+                tolerance=tolerance, max_iter=max_iter, n_steps=n_steps
+            )
+        else:
+            self._solve_linear()
+
+    def _solve_linear(self):
         """
         Perform linear static analysis.
         Numbers DOFs, assembles matrices, partitions, solves for free displacements,

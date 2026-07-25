@@ -103,9 +103,9 @@ def test_frame_5_1_v2():
     section_half = Section(A, I_half)
 
     # 3. Create elements
-    elem1 = BeamElement(1, node1, node2, material, section_full.A, section_full.I)
-    elem2 = BeamElement(2, node2, node3, material, section_half.A, section_half.I)
-    elem3 = BeamElement(3, node3, node4, material, section_full.A, section_full.I)
+    elem1 = BeamElement(1, node1, node2, material, section_full)
+    elem2 = BeamElement(2, node2, node3, material, section_half)
+    elem3 = BeamElement(3, node3, node4, material, section_full)
 
     # 4. Create structure and add nodes/elements
     structure = Structure()
@@ -282,10 +282,11 @@ def test_beam_4_11():
     A = 6500e-6
     I = 2e-4
     material = ElasticMaterial(E)
+    section = Section(A, I)
 
-    elem1 = BeamElement(1, node1, node2, material, A, I)
-    elem2 = BeamWithHingesElement(2, node2, node3, material, A, I, hinge_j=True)
-    elem3 = BeamElement(3, node3, node4, material, A, I)
+    elem1 = BeamElement(1, node1, node2, material, section)
+    elem2 = BeamWithHingesElement(2, node2, node3, material, section, hinge_j=True)
+    elem3 = BeamElement(3, node3, node4, material, section)
 
     structure = Structure()
     for node in (node1, node2, node3, node4):
@@ -323,10 +324,11 @@ def test_frame_7_1():
     A = 6500e-6
     I = 150e-6
     material = ElasticMaterial(E)
+    section = Section(A, I)
 
-    elem1 = BeamWithHingesElement(1, node1, node2, material, A, I, hinge_j=True)
-    elem2 = BeamElement(2, node2, node3, material, A, I)
-    elem3 = BeamElement(3, node3, node4, material, A, I)
+    elem1 = BeamWithHingesElement(1, node1, node2, material, section, hinge_j=True)
+    elem2 = BeamElement(2, node2, node3, material, section)
+    elem3 = BeamElement(3, node3, node4, material, section)
 
     structure = Structure()
     for node in (node1, node2, node3, node4):

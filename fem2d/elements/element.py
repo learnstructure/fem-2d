@@ -124,24 +124,67 @@ class ElementBase:
         """
         return np.zeros(6)  # override if needed
 
-    def internal_forces(self, displacements):
+    def update_state(self, global_disp):
         """
-        Given nodal displacements (global, 6‑vector), return local end forces.
+        Default state update for linear elements given global displacement vector.
+        Computes global internal forces F_global = K_global @ u_global.
 
         Parameters
         ----------
-        displacements : numpy.ndarray
-            Global displacement vector for the element nodes.
+        global_disp : numpy.ndarray
+            Full global displacement vector of the structure.
+        """
+        u_i = global_disp[self.node_i.dofs]
+        u_j = global_disp[self.node_j.dofs]
+        u_global = np.concatenate([u_i, u_j])
+        K_g = self.global_stiffness()
+        self._f_internal_global = K_g @ u_global
+        self._k_tangent_global = K_g
+
+    def get_tangent_stiffness(self):
+        """
+        Return global tangent stiffness matrix of the element.
 
         Returns
         -------
         numpy.ndarray
-            Local end forces vector.
-
-        Raises
-        ------
-        NotImplementedError
-            Must be implemented by subclasses.
+            Global stiffness matrix (typically 6x6).
         """
-        # Used for post‑processing and non‑linear iterations.
-        raise NotImplementedError
+        if hasattr(self, "_k_tangent_global") and self._k_tangent_global is not None:
+            return self._k_tangent_global
+        return self.global_stiffness()
+
+    def get_internal_forces(self):
+        """
+        Return global internal force vector of the element.
+
+        Returns
+        -------
+        numpy.ndarray
+            Global internal force vector (typically 6x1).
+        """
+        if hasattr(self, "_f_internal_global") and self._f_internal_global is not None:
+            return self._f_internal_global
+        return np.zeros(6)
+
+    def get_local_forces(self):
+        """
+        Compute and return the element internal forces in local coordinates.
+
+        Returns
+        -------
+        numpy.ndarray
+            6-component vector [Fx_i, Fy_i, Mz_i, Fx_j, Fy_j, Mz_j] in local coordinates.
+        """
+        if hasattr(self, "structure") and self.structure is not None and self.structure.disp is not None:
+            u_i = self.structure.disp[self.node_i.dofs]
+            u_j = self.structure.disp[self.node_j.dofs]
+            u_global = np.concatenate([u_i, u_j])
+            T = self.transformation_matrix()
+            u_local = T @ u_global
+            f_local = self.local_stiffness() @ u_local
+            if hasattr(self, "eq_load") and self.eq_load is not None:
+                eq_load_local = T @ self.eq_load
+                f_local -= eq_load_local
+            return f_local
+        return np.zeros(6)

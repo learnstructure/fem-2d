@@ -31,9 +31,12 @@ class SpringElement(TrussElement):
         stiffness : float
             Axial stiffness coefficient of the spring.
         """
-        # We don't need material/area; just pass a dummy material or handle separately.
         self.k = stiffness
-        super().__init__(eid, node_i, node_j, material=None, area=None)
+        # SpringElement doesn't use a real material or section; pass a dummy
+        # Section so the new TrussElement(material, section) signature is satisfied.
+        from fem2d.sections.section import Section as _Section
+        _dummy_section = _Section(area=1.0)
+        super().__init__(eid, node_i, node_j, material=None, section=_dummy_section)
 
     def local_stiffness(self):
         """

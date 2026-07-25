@@ -8,7 +8,12 @@ import numpy as np
 
 class BeamElement(ElementBase):
     """
-    Elastic 2D Euler-Bernoulli beam element including axial, shear, and bending stiffness.
+    Elastic 2D Euler-Bernoulli beam element.
+
+    The element formulation is the classical Euler-Bernoulli beam (shear
+    deformation is neglected), so only axial and flexural degrees of freedom
+    are considered.  Optional distributed ``extra_mass`` and a corotational
+    geometrically-nonlinear formulation are supported.
 
     Attributes
     ----------
@@ -22,7 +27,16 @@ class BeamElement(ElementBase):
         Additional distributed mass per unit length (e.g. non-structural mass).
     """
 
-    def __init__(self, eid, node_i, node_j, material, area, inertia, extra_mass=0.0):
+    def __init__(
+        self,
+        eid,
+        node_i,
+        node_j,
+        material,
+        section,
+        extra_mass=0.0,
+        geometric_nonlinear=False,
+    ):
         """
         Initialize a BeamElement.
 
@@ -34,20 +48,62 @@ class BeamElement(ElementBase):
             Start node.
         node_j : Node
             End node.
-        material : ElasticMaterial
+        material : ElasticMaterial or UniaxialMaterial
             Material definition.
-        area : float
-            Cross-sectional area.
-        inertia : float
-            Moment of inertia.
+        section : Section
+            Section definition (containing A and I).
         extra_mass : float, optional
             Additional distributed mass per unit length. Defaults to 0.0.
+        geometric_nonlinear : bool, optional
+            Whether to use corotational geometric non-linear formulation. Defaults to False.
         """
         super().__init__(eid, node_i, node_j)
-        self.material = material
-        self.area = area
-        self.inertia = inertia  # Moment of inertia
-        self.extra_mass = extra_mass  # kg/m, additional distributed mass
+
+        # Handle Section object or numeric area/inertia fallback
+        if hasattr(section, "A") and hasattr(section, "I"):
+            self.section = section
+            self.area = section.A
+            self.inertia = section.I
+            self.material = material
+        elif hasattr(material, "A") and hasattr(material, "I"):
+            self.section = material
+            self.area = material.A
+            self.inertia = material.I
+            self.material = getattr(material, "material", None)
+            if isinstance(section, (int, float)):
+                extra_mass = float(section)
+        elif isinstance(section, (int, float)):
+            from fem2d.sections.section import Section
+            area_val = float(section)
+            moi_val = float(extra_mass) if isinstance(extra_mass, (int, float)) else 0.0
+            self.section = Section(area_val, moi_val)
+            self.area = area_val
+            self.inertia = moi_val
+            self.material = material
+            extra_mass = 0.0
+        else:
+            self.material = material
+            self.section = section
+            self.area = getattr(section, "A", None)
+            self.inertia = getattr(section, "I", None)
+
+        self.extra_mass = extra_mass
+        self.geometric_nonlinear = geometric_nonlinear
+
+        # State variables for non-linear updates
+        self.L0 = None
+        self.alpha0 = None
+        self.f_local = None
+        self.F_global = None
+        self.k_local = None
+        self.K_global = None
+
+    def _update_initial_geometry(self):
+        """Compute initial length and chord angle."""
+        dx = self.node_j.x - self.node_i.x
+        dy = self.node_j.y - self.node_i.y
+        self.L0 = np.hypot(dx, dy)
+        self.alpha0 = np.arctan2(dy, dx)
 
     def local_stiffness(self):
         """
@@ -58,14 +114,14 @@ class BeamElement(ElementBase):
         numpy.ndarray
             Stiffness matrix in local coordinate system.
         """
-        E = self.material.E
+        E = self.material.E if self.material is not None else 1.0
         A = self.area
         I = self.inertia
         L = self.length
 
         EA_L = E * A / L
         EI_L3 = E * I / L**3
-        EI_L2 = E * I / L**2  # = EI / L²
+        EI_L2 = E * I / L**2
         EI_L = E * I / L
 
         return np.array(
@@ -79,45 +135,158 @@ class BeamElement(ElementBase):
             ]
         )
 
-    # transformation_matrix() from base class is already 6x6, so global_stiffness() works directly.
+    def update_state(self, global_disp):
+        """
+        Update internal forces and stiffness matrices given global displacement vector.
 
-    # def equivalent_nodal_loads(self):
-    #     """
-    #     Return local equivalent nodal loads due to distributed element loads.
+        Parameters
+        ----------
+        global_disp : numpy.ndarray
+            Full global displacement vector of the structure.
+        """
+        if self.L0 is None:
+            self._update_initial_geometry()
 
-    #     Returns
-    #     -------
-    #     numpy.ndarray
-    #         Equivalent nodal load vector (6x1).
-    #     """
-    #     # If a distributed load is stored, compute fixed‑end forces.
-    #     # For example, uniform load w in local y‑direction:
-    #     if hasattr(self, "w"):
-    #         w = self.w
-    #         L = self.length
-    #         return np.array([0, w * L / 2, w * L**2 / 12, 0, w * L / 2, -w * L**2 / 12])
-    #     return np.zeros(6)
+        if self.geometric_nonlinear:
+            # Corotational geometrically non-linear formulation
+            u_i = global_disp[self.node_i.dofs]
+            u_j = global_disp[self.node_j.dofs]
+
+            x_i = self.node_i.x + u_i[0]
+            y_i = self.node_i.y + u_i[1]
+            x_j = self.node_j.x + u_j[0]
+            y_j = self.node_j.y + u_j[1]
+
+            dx = x_j - x_i
+            dy = y_j - y_i
+            L = np.hypot(dx, dy)
+            alpha = np.arctan2(dy, dx)
+
+            beta = alpha - self.alpha0
+
+            theta1_bar = u_i[2] - beta
+            theta2_bar = u_j[2] - beta
+            u2 = L - self.L0
+
+            d_local = np.array([0.0, 0.0, theta1_bar, u2, 0.0, theta2_bar])
+
+            E = self.material.E if self.material is not None else 1.0
+            A = self.area
+            I = self.inertia
+            L0 = self.L0
+
+            EA_L = E * A / L0
+            f_x2 = EA_L * u2
+
+            k1 = np.zeros((6, 6))
+            k1[0, 0] = k1[3, 3] = EA_L
+            k1[0, 3] = k1[3, 0] = -EA_L
+
+            EI_L3 = E * I / L0**3
+            EI_L2 = E * I / L0**2
+            EI_L = E * I / L0
+
+            k1[1, 1] = 12 * EI_L3
+            k1[1, 2] = 6 * EI_L2
+            k1[1, 4] = -12 * EI_L3
+            k1[1, 5] = 6 * EI_L2
+
+            k1[2, 1] = 6 * EI_L2
+            k1[2, 2] = 4 * EI_L
+            k1[2, 4] = -6 * EI_L2
+            k1[2, 5] = 2 * EI_L
+
+            k1[4, 1] = -12 * EI_L3
+            k1[4, 2] = -6 * EI_L2
+            k1[4, 4] = 12 * EI_L3
+            k1[4, 5] = -6 * EI_L2
+
+            k1[5, 1] = 6 * EI_L2
+            k1[5, 2] = 2 * EI_L
+            k1[5, 4] = -6 * EI_L2
+            k1[5, 5] = 4 * EI_L
+
+            factor = f_x2 / (30.0 * L0)
+            k2 = np.zeros((6, 6))
+
+            k2[1, 1] = 36
+            k2[1, 2] = 3 * L0
+            k2[1, 4] = -36
+            k2[1, 5] = 3 * L0
+
+            k2[2, 1] = 3 * L0
+            k2[2, 2] = 4 * L0**2
+            k2[2, 4] = -3 * L0
+            k2[2, 5] = -(L0**2)
+
+            k2[4, 1] = -36
+            k2[4, 2] = -3 * L0
+            k2[4, 4] = 36
+            k2[4, 5] = -3 * L0
+
+            k2[5, 1] = 3 * L0
+            k2[5, 2] = -(L0**2)
+            k2[5, 4] = -3 * L0
+            k2[5, 5] = 4 * L0**2
+
+            k2 *= factor
+            k_local = k1 + k2
+            f_local = k_local @ d_local
+
+            c = np.cos(alpha)
+            s = np.sin(alpha)
+            R = np.array([[c, -s, 0], [s, c, 0], [0, 0, 1]])
+            T = np.zeros((6, 6))
+            T[:3, :3] = R
+            T[3:, 3:] = R
+
+            self.f_local = f_local
+            self.F_global = T @ f_local
+            self.k_local = k_local
+            self.K_global = T @ k_local @ T.T
+        else:
+            # Linear static state update
+            u_i = global_disp[self.node_i.dofs]
+            u_j = global_disp[self.node_j.dofs]
+            u_global = np.concatenate([u_i, u_j])
+            T = self.transformation_matrix()
+            u_local = T @ u_global
+            self.k_local = self.local_stiffness()
+            self.f_local = self.k_local @ u_local
+            if hasattr(self, "eq_load") and self.eq_load is not None:
+                eq_load_local = T @ self.eq_load
+                self.f_local -= eq_load_local
+            self.K_global = T.T @ self.k_local @ T
+            self.F_global = self.K_global @ u_global
+
+    def get_tangent_stiffness(self):
+        """Return global tangent stiffness matrix of the element."""
+        if hasattr(self, "K_global") and self.K_global is not None:
+            return self.K_global
+        return self.global_stiffness()
+
+    def get_internal_forces(self):
+        """Return global internal forces vector of the element."""
+        if hasattr(self, "F_global") and self.F_global is not None:
+            return self.F_global
+        return np.zeros(6)
 
     def get_local_forces(self):
-        """
-        Compute and return the element internal forces in local coordinates.
-
-        Returns
-        -------
-        numpy.ndarray
-            6-component vector [Fx_i, Fy_i, Mz_i, Fx_j, Fy_j, Mz_j] in local coordinates.
-        """
-        u_i = self.structure.disp[self.node_i.dofs]
-        u_j = self.structure.disp[self.node_j.dofs]
-        u_global = np.concatenate([u_i, u_j])
-        T = self.transformation_matrix()  # 6×6
-        u_local = T @ u_global
-        f_local = self.local_stiffness() @ u_local
-        # Subtract equivalent nodal loads if any (e.g., from distributed loads)
-        if hasattr(self, "eq_load") and self.eq_load is not None:
-            eq_load_local = T @ self.eq_load
-            f_local -= eq_load_local
-        return f_local
+        """Return local end forces vector of the element."""
+        if hasattr(self, "f_local") and self.f_local is not None:
+            return self.f_local
+        if hasattr(self, "structure") and self.structure is not None and self.structure.disp is not None:
+            u_i = self.structure.disp[self.node_i.dofs]
+            u_j = self.structure.disp[self.node_j.dofs]
+            u_global = np.concatenate([u_i, u_j])
+            T = self.transformation_matrix()
+            u_local = T @ u_global
+            f_loc = self.local_stiffness() @ u_local
+            if hasattr(self, "eq_load") and self.eq_load is not None:
+                eq_load_local = T @ self.eq_load
+                f_loc -= eq_load_local
+            return f_loc
+        return np.zeros(6)
 
     def deformed_shape_points(self, global_disp, n_points=20, scale=1.0):
         """

@@ -61,8 +61,7 @@ for story in range(1, n_stories + 1):
         left_node,
         right_node,
         material,
-        beam_section.A,
-        beam_section.I,
+        beam_section,
         extra_mass=0.0,  # no distributed mass
     )
     structure.add_element(beam)
@@ -79,8 +78,7 @@ for story in range(n_stories):
         bottom_node,
         top_node,
         material,
-        column_section.A,
-        column_section.I,
+        column_section
     )
     structure.add_element(col)
 
