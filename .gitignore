@@ -36,3 +36,6 @@ docs/source/api/
 notebooks/
 
 examples/non_linear/truss_buckling.py
+
+*.png
+*.jpg

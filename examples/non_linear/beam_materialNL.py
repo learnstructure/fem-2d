@@ -31,11 +31,11 @@ structure.add_element(elem)
 node2.set_load(fx=0.0, fy=-10, mz=0.0)
 structure.solve_nonlinear(n_steps=1)
 disp = structure.disp[node2.dofs]
-print(disp)
+print(disp)         #[-1.00000519e-06 -2.00501119e-03 -1.50375864e-03]
 
 #Large load
 node2.set_load(fx=0.0, fy=-500, mz=0.0)
 # Solve with multiple steps
 structure.solve_nonlinear(n_steps=50)
 disp_plastic = structure.disp[node2.dofs]
-print(disp_plastic)
+print(disp_plastic)         #[-1.61803449 -1.97667108 -3.52491989]
