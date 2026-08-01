@@ -39,3 +39,5 @@ examples/non_linear/truss_buckling.py
 
 *.png
 *.jpg
+
+agent.md

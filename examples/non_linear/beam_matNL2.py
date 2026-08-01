@@ -14,8 +14,8 @@ node1.set_support(1, 1, 1)
 
 # Material & Section
 E = 200e6
-sigma_y = 400000000e3
-E_t = 0.05 * E
+sigma_y = 400e3
+E_t = 0.01 * E
 material = BilinearMaterial(E, sigma_y, E_t, beta=0.0)
 section = FiberSection.from_rectangular_fibers(width=0.05, depth=0.05, material=material, n_fibers=20)
 # Create element
@@ -27,6 +27,6 @@ structure.add_node(node2)
 structure.add_element(elem)
 
 node2.set_load(fx=0.0, fy=-2.5, mz=0.0)
-structure.solve_nonlinear(n_steps=1, tolerance=1e-8, max_iter=100)
+structure.solve_nonlinear(n_steps=10, tolerance=1e-8, max_iter=100)
 disp = structure.disp[node2.dofs]
 print(disp)      

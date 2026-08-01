@@ -116,23 +116,14 @@ for story in range(1, n_stories + 1):
     right_node.set_mass(mass=mass_per_node, inertia=small_inertia)
 
 # -------------------------------------------------------------------
-# Assemble matrices and reduce
+# Create MDF 
 # -------------------------------------------------------------------
-structure.number_dofs()
-structure.apply_boundary_conditions()
-structure.assemble_stiffness()
-# structure.solve()
-structure.assemble_mass_matrix()
-
-K_ff, M_ff = structure.get_reduced_matrices()
-
-print("K_ff shape:", K_ff.shape)
-print("M_ff shape:", M_ff.shape)
+mdf = MDF.from_fem2d(structure)
 
 # -------------------------------------------------------------------
 # Eigenvalue analysis
 # -------------------------------------------------------------------
-mdf = MDF(M_ff, K_ff)
+
 omega, phi = mdf.modal.modal_analysis(dof_normalize=-1)
 T = 2 * math.pi / omega
 

@@ -50,6 +50,7 @@ class Structure:
         self.loads = []  # list of load objects
         self.K = None  # global stiffness
         self.F = None  # global load vector
+        self.M = None  # global mass matrix
         self.disp = None  # displacement vector
         self.reactions = None
 
