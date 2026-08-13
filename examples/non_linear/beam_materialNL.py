@@ -34,7 +34,7 @@ disp = structure.disp[node2.dofs]
 print(disp)         #[-1.00000519e-06 -2.00501119e-03 -1.50375864e-03]
 
 #Large load
-node2.set_load(fx=0.0, fy=-500, mz=0.0)
+node2.set_load(fx=0.0, fy=-200, mz=0.0)
 # Solve with multiple steps
 structure.solve_nonlinear(n_steps=50)
 disp_plastic = structure.disp[node2.dofs]

@@ -78,7 +78,7 @@ class SimpleFrame:
         elem = BeamElement(id, node_i, node_j, material, section)
         self.structure.add_element(elem)
 
-    def add_truss(self, id, node_i_id, node_j_id, E, A):
+    def add_truss(self, id, node_i_id, node_j_id, E, A, I=0.0):
         """
         Add an elastic truss element to the structure.
 
@@ -94,11 +94,16 @@ class SimpleFrame:
             Young's Modulus of the truss material.
         A : float
             Cross-sectional area.
+        I : float, optional
+            Moment of inertia. Defaults to ``0.0`` for an ideal pin-ended
+            truss. Pass a small positive value (e.g. ``1e-12``) when the
+            downstream consumer (e.g. ``struct_core.GeneralSection``)
+            requires ``Iz > 0``.
         """
         node_i = self.structure.nodes[node_i_id]
         node_j = self.structure.nodes[node_j_id]
         material = ElasticMaterial(E)
-        section = Section(A)
+        section = Section(A, I)
         elem = TrussElement(id, node_i, node_j, material, section)
         self.structure.add_element(elem)
 

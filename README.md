@@ -152,6 +152,103 @@ plotter = DrawStructure(structure, scale=0.05)
 plotter.draw()
 ```
 
+### 4. Ecosystem Integration with `struct_core`
+
+`fem2d` ships with a three-function adapter to the
+[struct_core](https://github.com/learnstructure/struct_core) schema so that
+models and analysis results can be shared with other packages in the
+ecosystem (visualizers, design tools, code-checkers, …).
+
+Install the optional dependency:
+
+```bash
+pip install fem2d[ecosystem]
+```
+
+The adapter exposes three functions — all are pure conversions, no side
+effects, no global state. Naming follows `<artefact>_<direction>_<target>`:
+
+| Function | Direction | Purpose |
+| --- | --- | --- |
+| `model_from_core` | `struct_core → fem2d` | Build a `fem2d.Structure` from a `struct_core.StructuralModel` (or `Project`). |
+| `model_to_core`   | `fem2d → struct_core` | Build a `struct_core.StructuralModel` from a `fem2d.Structure` / `SimpleFrame` / `Results`. |
+| `result_to_core`  | `fem2d → struct_core` | Build a `struct_core.AnalysisResult` from an analyzed `fem2d` model. |
+
+There is intentionally **no** `result_from_core` — round-tripping an
+`AnalysisResult` back into a `fem2d.Results` is out of scope.
+
+#### 4.1 Convert analysis results for downstream consumers
+
+```python
+from fem2d import SimpleFrame, result_to_core
+from struct_core import save_json
+
+frame = SimpleFrame()
+frame.add_node(1, 0.0, 0.0)
+frame.add_node(2, 120.0, 0.0)
+frame.add_frame(1, 1, 2, 30000.0, 10.0, 200.0)
+frame.add_support(1, [True, True, True])
+frame.add_node_load(2, [10.0, 0.0, 0.0])
+frame.solve()
+
+# fem2d → struct_core.AnalysisResult
+result = result_to_core(frame, analysis_case_id="Static")
+
+# Serialize to JSON for downstream consumers
+save_json(result, "static_result.json")
+```
+
+#### 4.2 Build a struct_core model from a fem2d `Structure`
+
+```python
+from fem2d import SimpleFrame, model_to_core, result_to_core
+from struct_core import Project, save_json
+
+frame = SimpleFrame()
+frame.add_node(1, 0.0, 0.0)
+frame.add_node(2, 100.0, 0.0)
+frame.add_frame(1, 1, 2, 30000.0, 10.0, 200.0)
+frame.add_support(1, [True, True, True])
+frame.add_node_load(2, [0.0, -1000.0, 0.0])
+frame.solve()
+
+# fem2d → struct_core.StructuralModel
+sc_model = model_to_core(frame)
+
+# Wrap in a Project and serialize
+project = Project()
+project.metadata.title = "Cantilever beam"
+project.model = sc_model
+save_json(project, "model.json")
+```
+
+#### 4.3 Build a `fem2d.Structure` from a `struct_core` model
+
+```python
+from fem2d import model_from_core
+
+# `my_project` is a struct_core.Project (or StructuralModel)
+structure = model_from_core(my_project)
+structure.solve()
+```
+
+#### 4.4 Round-trip a model through `struct_core`
+
+The three functions are designed to be inverse:
+
+```python
+from fem2d import SimpleFrame, model_from_core, model_to_core, result_to_core
+
+frame = SimpleFrame()
+# ... build & solve ...
+
+# fem2d → core → fem2d
+sc_model = model_to_core(frame)
+round_tripped = model_from_core(sc_model)
+round_tripped.solve()
+assert round_tripped.disp == pytest.approx(frame.structure.disp)
+```
+
 ## Running Tests
 
 Verify that your installation is working correctly by running the tests:

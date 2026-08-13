@@ -22,6 +22,7 @@ from .elements.beam_materialNL import BeamElementMaterialNL
 from .utils.simple_frame import SimpleFrame
 from .solver import NewtonRaphsonSolver
 from .buckling_analysis import buckling_analysis
+from .adapters import model_from_core, model_to_core, result_to_core
 
 try:
     from .utils.draw_structure import DrawStructure
@@ -49,4 +50,7 @@ __all__ = [
     "DrawStructure",
     "NewtonRaphsonSolver",
     "buckling_analysis",
+    "model_from_core",
+    "model_to_core",
+    "result_to_core",
 ]
