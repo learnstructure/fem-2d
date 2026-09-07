@@ -25,9 +25,10 @@ from .buckling_analysis import buckling_analysis
 from .adapters import model_from_core, model_to_core, result_to_core
 
 try:
-    from .utils.draw_structure import DrawStructure
+    from .utils.draw_structure import DrawStructure, plot_mode_shape
 except ImportError:  # pragma: no cover - optional plotting dependency
     DrawStructure = None
+    plot_mode_shape = None
 
 __all__ = [
     "Structure",
@@ -48,6 +49,7 @@ __all__ = [
     "BeamElementMaterialNL",
     "SimpleFrame",
     "DrawStructure",
+    "plot_mode_shape",
     "NewtonRaphsonSolver",
     "buckling_analysis",
     "model_from_core",

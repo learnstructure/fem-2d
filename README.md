@@ -24,7 +24,70 @@ Documentation: [![Documentation Status](https://readthedocs.org/projects/fem2d/b
   - **Mass Matrix Assembly:** Assembles global mass matrices (including rotational inertia and extra non-structural mass) to support modal and eigenvalue analysis.
 - **Post-Processing & Visualization:**
   - **Pandas Integration:** Convert displacements, reactions, and element forces directly into pandas DataFrames for easy analysis and post-processing.
-  - **Graphical Plots:** Plot the undeformed/deformed configurations, support conditions, and applied loads using Matplotlib.
+  - **Graphical Plots:** Publication-ready visualization of undeformed and deformed shapes, realistic boundary supports (fixed clamp, pin, roller), load notation badges, and shaded distributed load bands using Matplotlib.
+
+## Project Structure & Architecture
+
+The repository is modularly architected into distinct layers: core finite element abstractions, element formulations, constitutive material models, cross-sections, numerical solvers, external schema adapters, and visualization utilities:
+
+```text
+fem-2d/
+├── fem2d/                       # Core finite element analysis package
+│   ├── structure.py             # Global model container, DOF indexing, matrix assembly, and solvers
+│   ├── nodes.py                 # Node definitions, boundary conditions [ux, uy, rz], mass/inertia
+│   ├── loads.py                 # Concentrated forces/moments, UDLs, and triangular/varying UVLs
+│   ├── solver.py                # Newton-Raphson nonlinear solver for large displacements
+│   ├── results.py               # Post-processing, pandas DataFrame extraction, and text/HTML reports
+│   ├── buckling_analysis.py     # Elastic buckling analysis via geometric stiffness (Ke + λ Kg)
+│   ├── m_phi_analysis.py        # Cross-section moment-curvature (M-φ) analysis
+│   ├── elements/                # Structural element library
+│   │   ├── element.py           # Abstract base element class (ElementBase)
+│   │   ├── beam.py              # 2D Euler-Bernoulli beam (axial + bending stiffness, mass, deformed shape)
+│   │   ├── beam_hinges.py       # Beam element with moment releases (hinge_i, hinge_j)
+│   │   ├── truss.py             # Linear and corotational geometrically non-linear truss element
+│   │   ├── spring.py            # 2D translational elastic spring element
+│   │   ├── beamNL.py            # Geometrically non-linear beam formulations
+│   │   ├── beam_materialNL.py   # Material-nonlinear beam element
+│   │   └── trussNL.py           # Specialized nonlinear truss formulation
+│   ├── materials/               # Constitutive material relationships
+│   │   ├── material.py          # Abstract material base class
+│   │   ├── elastic.py           # Linear elastic material (ElasticMaterial)
+│   │   ├── bilinear.py          # Elastoplastic bilinear material (BilinearMaterial)
+│   │   └── csv_material.py      # Custom stress-strain curve loaded from CSV (CSVMaterial)
+│   ├── sections/                # Geometric cross-section definitions
+│   │   ├── section.py           # Standard cross-section (A, Iz)
+│   │   ├── fiber.py             # Discretized fiber section for nonlinear stress integration
+│   │   └── moment_curvature.py  # User-defined moment-curvature section
+│   ├── adapters/                # Interoperability with the structural engineering ecosystem
+│   │   └── struct_core_adapter.py # Two-way converter for the struct_core JSON schema
+│   └── utils/                   # High-level utilities and visualization
+│       ├── simple_frame.py      # Streamlined high-level builder API (SimpleFrame)
+│       └── draw_structure.py    # Publication-quality structure visualizer (DrawStructure)
+├── examples/                    # Executable scripts and benchmarks
+│   ├── linear/                  # Classical textbook frames, continuous beams, and trusses
+│   ├── non_linear/              # Corotational trusses, buckling factors, and nonlinear materials
+│   ├── dynamic/                 # Mass matrix assembly, modal analysis, and time-history examples
+│   └── adapters/                # Model conversion and round-tripping with struct_core
+├── tests/                       # Comprehensive automated test suite (pytest)
+└── docs/                        # Sphinx documentation configuration and guides
+```
+
+### Module Breakdown
+
+| Module / Directory | Primary Role | Key Classes & Functions |
+| --- | --- | --- |
+| `fem2d.structure` | Central coordinator for the FE model | `Structure` |
+| `fem2d.nodes` | Spatial points and boundary constraints | `Node` |
+| `fem2d.loads` | Concentrated loads, UDLs, and UVLs | `PointLoad`, `DistributedLoad`, `TriangularLoad`, `ElementPointLoad` |
+| `fem2d.elements` | 2D element stiffness and mass formulations | `BeamElement`, `BeamWithHingesElement`, `TrussElement`, `SpringElement` |
+| `fem2d.materials` | Material constitutive laws | `ElasticMaterial`, `BilinearMaterial`, `CSVMaterial` |
+| `fem2d.sections` | Cross-section geometry & fiber discretization | `Section`, `FiberSection`, `MomentCurvatureSection` |
+| `fem2d.solver` | Nonlinear iterative solvers | `NewtonRaphsonSolver` |
+| `fem2d.buckling_analysis` | Critical elastic buckling factors | `buckling_analysis` |
+| `fem2d.results` | Tabular output and pandas integration | `Results` |
+| `fem2d.adapters` | Ecosystem data interchange (`struct_core`) | `model_from_core`, `model_to_core`, `result_to_core` |
+| `fem2d.utils.simple_frame` | High-level quick-modeling interface | `SimpleFrame` |
+| `fem2d.utils.draw_structure` | Engineering visualization & figure export | `DrawStructure` |
 
 ## Installation
 
@@ -140,16 +203,24 @@ print(results.element_forces())
 
 ### 3. Visualizing Structures
 
-You can easily generate visualization plots of undeformed and deformed structural shapes:
+`DrawStructure` renders publication-ready Matplotlib plots with realistic support symbols (fixed clamps, pins, rollers), clear load notation badges, shaded distributed load bands, internal hinge releases, and deformed shapes:
 
 ```python
 from fem2d import DrawStructure
 
-# Initialize plotter with analyzed structure
-plotter = DrawStructure(structure, scale=0.05)
+# Initialize plotter with analyzed structure (set displacement scale factor)
+plotter = DrawStructure(structure, scale=50.0)
 
-# Render structure in Matplotlib window
-plotter.draw()
+# Render structure in Matplotlib window (or save directly to file)
+plotter.draw(
+    show_deformed=True,
+    show_loads=True,
+    show_supports=True,
+    show_node_labels=True,
+    show_grid=False,             # Clean background without distracting gridlines
+    support_style="detailed",    # "detailed" (fixed clamp, pin, roller) or "box"
+    save_path="deformed_shape.png"  # Optional: export 300 DPI high-res figure
+)
 ```
 
 ### 4. Ecosystem Integration with `struct_core`
@@ -262,7 +333,7 @@ pytest
 If you use `fem2d` in your academic research or professional work, please cite it as follows:
 
 ```
-Mandal, A. (2026). FEM2D: An open-source Python library for structural analysis of 2D structures (v0.4.0). Zenodo. https://doi.org/10.5281/zenodo.20990850
+Mandal, A. (2026). FEM2D: An open-source Python library for structural analysis of 2D structures (v0.5.0). Zenodo. https://doi.org/10.5281/zenodo.20990850
 ```
 
 Refer to [CITATION.cff](CITATION.cff) for the BibTeX format details.

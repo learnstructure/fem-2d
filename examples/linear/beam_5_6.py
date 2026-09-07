@@ -40,9 +40,9 @@ print("Element Forces:\n", el_forces)
 print(disp["theta"][1])  # result = 0.0019290123456790125
 print(el_forces["fy_i"][1])  # result = 5.555555555555557
 
-# drawer = DrawStructure(
-#     frame.structure, scale=5
-# )  # scale displacements by 100 for visibility
-# drawer.draw()
+drawer = DrawStructure(
+    frame.structure, scale=100
+)  # scale displacements by 100 for visibility
+drawer.draw()
 
 # results.create_report()

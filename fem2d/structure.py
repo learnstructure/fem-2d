@@ -53,6 +53,7 @@ class Structure:
         self.M = None  # global mass matrix
         self.disp = None  # displacement vector
         self.reactions = None
+        self.modal_results = None  # stores (omega, phi) from modal analysis
 
     def add_node(self, node):
         """
@@ -87,6 +88,23 @@ class Structure:
             The load object to add.
         """
         self.loads.append(load)
+
+    def set_modal_results(self, omega, phi):
+        """
+        Register modal analysis results on the structure for later use by plotting utilities.
+
+        Once registered, ``plot_mode_shape`` (and ``DrawStructure.draw_mode_shape``) can be
+        called without explicitly passing ``phi`` or ``period`` — they are read from here.
+
+        Parameters
+        ----------
+        omega : numpy.ndarray
+            Array of natural circular frequencies (rad/s), one per mode.
+        phi : numpy.ndarray
+            Mode shape matrix of shape ``(n_free_dofs, n_modes)``.  Each column is a mode.
+        """
+        import numpy as np
+        self.modal_results = {"omega": np.asarray(omega), "phi": np.asarray(phi)}
 
     def number_dofs(self):
         """Assign DOF indices to each node (3 DOFs per node: [ux, uy, rz])."""

@@ -135,3 +135,21 @@ def test_hw4_modal_analysis():
     assert math.isclose(first_period, 0.740, rel_tol=0.01), (
         f"First period {first_period:.6f}s deviates from expected 0.740s"
     )
+
+
+def test_draw_mode_shape():
+    """Verify DrawStructure.draw_mode_shape cleanly plots mode shape using phi from structdyn."""
+    from fem2d import DrawStructure, plot_mode_shape
+
+    structure, K_ff, M_ff = build_hw4_structure()
+    mdf = MDF(M_ff, K_ff)
+    omega, phi = mdf.modal.modal_analysis(dof_normalize=-1)
+    T = 2 * math.pi / omega
+
+    drawer = DrawStructure(structure)
+    ax1 = drawer.draw_mode_shape(mode=1, phi=phi, period=T[0], show=False)
+    assert ax1 is not None
+
+    ax2 = plot_mode_shape(structure, mode=2, phi=phi, period=T[1], show=False)
+    assert ax2 is not None
+

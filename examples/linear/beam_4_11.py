@@ -51,7 +51,7 @@ node2.set_support(ux_fixed=True, uy_fixed=True, rz_fixed=False)
 node4.set_support(ux_fixed=True, uy_fixed=True, rz_fixed=True)
 
 # 6. Apply loads
-dl = DistributedLoad(elem3, wx=0, wy=10)  # uniform distributed load on element 3
+dl = DistributedLoad(elem3, wx=0, wy=-10)  # uniform distributed load on element 3
 structure.add_load(dl)
 
 # 7. Solve
@@ -65,11 +65,11 @@ el_forces = results.element_forces()
 
 # print(disp)
 # print(reactions)  
-print(disp["theta"][1])  #result = 1.2755102040816325e-05
-print(el_forces["m_j"][2])  #result = 3.928571428571429
+print(disp["theta"][1])  #result = -1.2755102040816325e-05
+print(el_forces["m_j"][2])  #result = -3.928571428571429
 # print(el_forces) 
 
-# drawer = DrawStructure(structure, scale=100)
-# drawer.draw()
+drawer = DrawStructure(structure, scale=5000)
+drawer.draw()
 
 # results.create_report()

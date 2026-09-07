@@ -2,7 +2,7 @@
 # first mode period by sap2000 is 0.740.
 # To match with sap, shear stiffness modifier in sap needs to be very high to ignore shear deformation. also self weight needs to be zeroed out.
 import numpy as np
-from fem2d import Structure, Node, ElasticMaterial, BeamElement, Section, DrawStructure
+from fem2d import Structure, Node, ElasticMaterial, BeamElement, Section, DrawStructure, plot_mode_shape
 from structdyn.mdf.mdf import MDF
 import math
 
@@ -131,14 +131,13 @@ print("\nFirst 5 periods (seconds):")
 for i in range(min(5, len(T))):
     print(f"Mode {i+1}: {T[i]:.6f} s")
 
-# Choose which mode to plot (first mode: index 0)
-mode_index = 0
-mode_shape_reduced = phi[:, mode_index]
+# Register modal results on the structure so plot_mode_shape can use them directly.
+structure.set_modal_results(omega, phi)
 
-# Build full displacement vector for the structure
-disp_full = np.zeros(structure.neq)  # all DOFs initially zero
-disp_full[structure.free_dofs] = mode_shape_reduced  # fill free DOFs with mode shape
+# Option 1 — convenience function (recommended for quick use):
+plot_mode_shape(structure, mode=1)
 
-structure.disp = disp_full
-drawer = DrawStructure(structure, scale=0.05)
-drawer.draw()
+# Option 2 — object-oriented style with DrawStructure (useful when you need the axes object
+#             or want to customise the plot further, e.g. save to file, change figsize, etc.):
+# drawer = DrawStructure(structure)
+# drawer.draw_mode_shape(mode=1)
