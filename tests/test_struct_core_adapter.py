@@ -353,3 +353,68 @@ def test_result_to_core_has_no_units_field():
 def test_result_to_core_rejects_non_fem2d_object():
     with pytest.raises(TypeError):
         result_to_core({"not": "a structure"})
+
+
+def test_load_combination_and_envelope_solving():
+    from struct_core import LoadCombination, LoadCaseFactor, DistributedLoad
+    from fem2d.adapters import solve_combinations_and_envelope
+
+    nodes = [
+        Node(id=1, x=0.0, y=0.0),
+        Node(id=2, x=0.0, y=3.0),
+        Node(id=3, x=5.0, y=3.0),
+        Node(id=4, x=5.0, y=0.0),
+    ]
+    mat = ElasticMaterial(id="Conc", E=2.5e7, rho=2400.0)
+    sec_beam = RectangularSection(id="B1", b=0.30, h=0.50)
+    sec_col = RectangularSection(id="C1", b=0.40, h=0.40)
+    elements = [
+        BeamElement(id=1, start_node=1, end_node=2, material_id="Conc", section_id="C1"),
+        BeamElement(id=2, start_node=2, end_node=3, material_id="Conc", section_id="B1"),
+        BeamElement(id=3, start_node=4, end_node=3, material_id="Conc", section_id="C1"),
+    ]
+    supports = [Support.fixed(node_id=1), Support.fixed(node_id=4)]
+
+    # Dead load: 10 kN/m on beam 2
+    lc_dead = LoadCase(id="Dead", element_loads=[DistributedLoad(element_id=2, wy=-10.0)])
+    # Live load: 15 kN/m on beam 2
+    lc_live = LoadCase(id="Live", element_loads=[DistributedLoad(element_id=2, wy=-15.0)])
+
+    comb1 = LoadCombination(
+        id="1.4D",
+        factors=[LoadCaseFactor(load_case_id="Dead", factor=1.4)],
+    )
+    comb2 = LoadCombination(
+        id="1.2D+1.6L",
+        factors=[
+            LoadCaseFactor(load_case_id="Dead", factor=1.2),
+            LoadCaseFactor(load_case_id="Live", factor=1.6),
+        ],
+    )
+
+    model = StructuralModel(
+        nodes=nodes,
+        materials=[mat],
+        sections=[sec_beam, sec_col],
+        elements=elements,
+        supports=supports,
+        load_cases=[lc_dead, lc_live],
+        load_combinations=[comb1, comb2],
+    )
+    project = Project(model=model)
+
+    comb_results, env_result = solve_combinations_and_envelope(project)
+
+    assert "1.4D" in comb_results
+    assert "1.2D+1.6L" in comb_results
+    assert env_result.analysis_case_id == "Envelope"
+
+    # In 1.4D: w = 1.4 * 10 = 14 kN/m
+    # In 1.2D+1.6L: w = 1.2 * 10 + 1.6 * 15 = 12 + 24 = 36 kN/m
+    # Envelope moment on beam 2 should be governed by 1.2D+1.6L
+    b2_comb1 = comb_results["1.4D"].element_results[2]
+    b2_comb2 = comb_results["1.2D+1.6L"].element_results[2]
+    b2_env = env_result.element_results[2]
+
+    assert abs(b2_comb2.max_moment) > abs(b2_comb1.max_moment)
+    assert abs(b2_env.max_moment) == pytest.approx(abs(b2_comb2.max_moment), rel=1e-5)

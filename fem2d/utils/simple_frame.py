@@ -52,7 +52,24 @@ class SimpleFrame:
         self.structure.add_node(node)
         return node
 
-    def add_frame(self, id, node_i_id, node_j_id, E, A, I):
+    def add_frame(
+        self,
+        id,
+        node_i_id,
+        node_j_id,
+        E,
+        A,
+        I,
+        hinge_i=False,
+        hinge_j=False,
+        releases_i=None,
+        releases_j=None,
+        include_shear_deformation=False,
+        As=None,
+        fs=None,
+        G=None,
+        nu=0.3,
+    ):
         """
         Add an elastic beam/frame element to the structure.
 
@@ -70,13 +87,48 @@ class SimpleFrame:
             Cross-sectional area.
         I : float
             Moment of inertia of the member cross-section.
+        hinge_i : bool, optional
+            Whether start node i has a moment release (hinge). Defaults to False.
+        hinge_j : bool, optional
+            Whether end node j has a moment release (hinge). Defaults to False.
+        releases_i : list of bool, optional
+            End release fixity at start node [u1, u2, theta]. Defaults to None.
+        releases_j : list of bool, optional
+            End release fixity at end node [u1, u2, theta]. Defaults to None.
+        include_shear_deformation : bool, optional
+            Whether to include Timoshenko shear deformation. Defaults to False.
+        As : float, optional
+            Effective shear area. Defaults to None.
+        fs : float, optional
+            Shear shape factor (e.g. 1.2 for rectangle). Defaults to None.
+        G : float, optional
+            Shear modulus. Defaults to None (computed from E and nu).
+        nu : float, optional
+            Poisson's ratio. Defaults to 0.3.
+
+        Returns
+        -------
+        BeamElement
+            The created BeamElement instance.
         """
         node_i = self.structure.nodes[node_i_id]
         node_j = self.structure.nodes[node_j_id]
-        material = ElasticMaterial(E)
-        section = Section(A, I)
-        elem = BeamElement(id, node_i, node_j, material, section)
+        material = ElasticMaterial(E, nu=nu, G=G)
+        section = Section(A, I, As=As, fs=fs)
+        elem = BeamElement(
+            id,
+            node_i,
+            node_j,
+            material,
+            section,
+            hinge_i=hinge_i,
+            hinge_j=hinge_j,
+            releases_i=releases_i,
+            releases_j=releases_j,
+            include_shear_deformation=include_shear_deformation,
+        )
         self.structure.add_element(elem)
+        return elem
 
     def add_truss(self, id, node_i_id, node_j_id, E, A, I=0.0):
         """

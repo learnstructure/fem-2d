@@ -14,6 +14,15 @@ Re-exported at the top level as ``fem2d.model_from_core``,
 ``fem2d.model_to_core``, and ``fem2d.result_to_core`` for convenience.
 """
 
-from .struct_core_adapter import model_from_core, model_to_core, result_to_core
+try:
+    from .struct_core_adapter import model_from_core, model_to_core, result_to_core, solve_combinations_and_envelope
+except ImportError:  # struct_core is an optional dependency
+    def _missing(*args, **kwargs):
+        raise ImportError(
+            "The 'struct_core' package is required for this feature.\n"
+            "Install it with:  pip install struct_core\n"
+            "or install the optional extra:  pip install fem2d[ecosystem]"
+        )
+    model_from_core = model_to_core = result_to_core = solve_combinations_and_envelope = _missing
 
-__all__ = ["model_from_core", "model_to_core", "result_to_core"]
+__all__ = ["model_from_core", "model_to_core", "result_to_core", "solve_combinations_and_envelope"]

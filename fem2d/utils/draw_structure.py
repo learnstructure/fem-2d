@@ -693,20 +693,20 @@ class DrawStructure:
 
     def _draw_member_hinges(self, ax, span):
         """Draw open circular hinge symbols at member ends with moment releases."""
-        from fem2d.elements.beam_hinges import BeamWithHingesElement
-
         hinge_radius = 0.012 * span
         offset_dist = 0.035 * span
 
         for el in self.structure.elements.values():
-            if isinstance(el, BeamWithHingesElement):
+            hinge_i = getattr(el, "hinge_i", False)
+            hinge_j = getattr(el, "hinge_j", False)
+            if hinge_i or hinge_j:
                 L = el.length
                 if L < 1e-9:
                     continue
                 dx = (el.node_j.x - el.node_i.x) / L
                 dy = (el.node_j.y - el.node_i.y) / L
 
-                if el.hinge_i:
+                if hinge_i:
                     hx = el.node_i.x + dx * min(offset_dist, 0.2 * L)
                     hy = el.node_i.y + dy * min(offset_dist, 0.2 * L)
                     h_circle = Circle(
@@ -719,7 +719,7 @@ class DrawStructure:
                     )
                     ax.add_patch(h_circle)
 
-                if el.hinge_j:
+                if hinge_j:
                     hx = el.node_j.x - dx * min(offset_dist, 0.2 * L)
                     hy = el.node_j.y - dy * min(offset_dist, 0.2 * L)
                     h_circle = Circle(

@@ -419,3 +419,83 @@ def test_beam_spring():
     assert abs(el_forces["m_i"][1] - 139.53488372093017) < 1e-9
 
 
+def test_frame_7_1_beam_element_native_hinge():
+    """Verify Kassimali 7.1 using native BeamElement(..., hinge_j=True)."""
+    node1 = Node(1, 0, 0)
+    node2 = Node(2, 0, 5)
+    node3 = Node(3, 5, 5)
+    node4 = Node(4, 5, 0)
+
+    E = 200e6
+    A = 6500e-6
+    I = 150e-6
+    material = ElasticMaterial(E)
+    section = Section(A, I)
+
+    elem1 = BeamElement(1, node1, node2, material, section, hinge_j=True)
+    elem2 = BeamElement(2, node2, node3, material, section)
+    elem3 = BeamElement(3, node3, node4, material, section)
+
+    structure = Structure()
+    for node in (node1, node2, node3, node4):
+        structure.add_node(node)
+    structure.add_element(elem1)
+    structure.add_element(elem2)
+    structure.add_element(elem3)
+
+    node1.set_support(ux_fixed=True, uy_fixed=True, rz_fixed=True)
+    node4.set_support(ux_fixed=True, uy_fixed=True, rz_fixed=False)
+
+    structure.add_load(PointLoad(node2, fx=90.75, fy=0.0, mz=0.0))
+    structure.add_load(ElementPointLoad(elem2, x=2.5, py=-300.0))
+    structure.add_load(DistributedLoad(elem1, wx=0.0, wy=-19.2))
+
+    structure.solve()
+
+    results = Results(structure)
+    disp = results.node_displacements()
+    el_forces = results.element_forces()
+
+    assert abs(disp["theta"][2] - -0.0013662379393815254) < 1e-12
+    assert abs(el_forces["m_i"][2] - 304.15771709113193) < 1e-9
+    assert abs(el_forces["m_j"][0]) < 1e-12  # Exact zero moment at hinged end j
+
+
+def test_beam_element_releases_vector_equivalence():
+    """Verify that releases_j=[False, False, True] is equivalent to hinge_j=True."""
+    node1 = Node(1, 0, 0)
+    node2 = Node(2, 4, 0)
+    mat = ElasticMaterial(200e6)
+    sec = Section(0.01, 1e-4)
+
+    elem_flag = BeamElement(1, node1, node2, mat, sec, hinge_j=True)
+    elem_vec = BeamElement(2, node1, node2, mat, sec, releases_j=[False, False, True])
+
+    k1 = elem_flag.local_stiffness()
+    k2 = elem_vec.local_stiffness()
+    assert np.allclose(k1, k2)
+    assert np.allclose(k1, k1.T)  # Ensure matrix symmetry
+
+
+def test_beam_element_both_hinges_stiffness():
+    """Verify stiffness matrix when both ends are hinged (axial-only member)."""
+    node1 = Node(1, 0, 0)
+    node2 = Node(2, 4, 0)
+    mat = ElasticMaterial(200e6)
+    sec = Section(0.01, 1e-4)
+
+    elem = BeamElement(1, node1, node2, mat, sec, hinge_i=True, hinge_j=True)
+    k = elem.local_stiffness()
+    assert np.allclose(k, k.T)
+    # Flexural and shear DOFs must be zero
+    assert abs(k[1, 1]) < 1e-12
+    assert abs(k[2, 2]) < 1e-12
+    assert abs(k[4, 4]) < 1e-12
+    assert abs(k[5, 5]) < 1e-12
+    # Axial stiffness preserved
+    expected_EA_L = 200e6 * 0.01 / 4.0
+    assert abs(k[0, 0] - expected_EA_L) < 1e-9
+    assert abs(k[3, 3] - expected_EA_L) < 1e-9
+
+
+

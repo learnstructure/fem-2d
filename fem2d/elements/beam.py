@@ -2,6 +2,7 @@
 Beam element module defining 2D elastic Euler-Bernoulli beam elements with mass options.
 """
 
+from typing import Optional, List, Union
 from fem2d.elements.element import ElementBase
 import numpy as np
 
@@ -12,8 +13,14 @@ class BeamElement(ElementBase):
 
     The element formulation is the classical Euler-Bernoulli beam (shear
     deformation is neglected), so only axial and flexural degrees of freedom
-    are considered.  Optional distributed ``extra_mass`` and a corotational
+    are considered. Optional distributed ``extra_mass`` and a corotational
     geometrically-nonlinear formulation are supported.
+
+    End releases (hinges) can be specified either via boolean flags:
+    - ``hinge_i=True``, ``hinge_j=True`` (moment releases / hinges)
+    or via general 3-DOF release vectors:
+    - ``releases_i=[u1, u2, theta]``, ``releases_j=[u1, u2, theta]``
+    Released DOFs are condensed out via static condensation.
 
     Attributes
     ----------
@@ -25,17 +32,30 @@ class BeamElement(ElementBase):
         Moment of inertia of the cross-section.
     extra_mass : float
         Additional distributed mass per unit length (e.g. non-structural mass).
+    hinge_i : bool
+        Whether end i has a moment release (hinge).
+    hinge_j : bool
+        Whether end j has a moment release (hinge).
+    releases_i : list of bool
+        End release flags at start node [u1, u2, theta].
+    releases_j : list of bool
+        End release flags at end node [u1, u2, theta].
     """
 
     def __init__(
         self,
-        eid,
+        eid: Union[int, str],
         node_i,
         node_j,
         material,
         section,
-        extra_mass=0.0,
-        geometric_nonlinear=False,
+        extra_mass: float = 0.0,
+        geometric_nonlinear: bool = False,
+        hinge_i: bool = False,
+        hinge_j: bool = False,
+        releases_i: Optional[List[bool]] = None,
+        releases_j: Optional[List[bool]] = None,
+        include_shear_deformation: bool = False,
     ):
         """
         Initialize a BeamElement.
@@ -56,6 +76,18 @@ class BeamElement(ElementBase):
             Additional distributed mass per unit length. Defaults to 0.0.
         geometric_nonlinear : bool, optional
             Whether to use corotational geometric non-linear formulation. Defaults to False.
+        hinge_i : bool, optional
+            Whether start node i has a moment release (hinge). Defaults to False.
+        hinge_j : bool, optional
+            Whether end node j has a moment release (hinge). Defaults to False.
+        releases_i : list of bool, optional
+            End release fixity at start node [u1, u2, theta]. True indicates released.
+        releases_j : list of bool, optional
+            End release fixity at end node [u1, u2, theta]. True indicates released.
+        include_shear_deformation : bool, optional
+            Whether to include Timoshenko shear deformation in the local stiffness matrix.
+            Requires shear area `As` (or shape factor `fs`) on Section and shear modulus `G`
+            (or `nu`) on ElasticMaterial. Defaults to False.
         """
         super().__init__(eid, node_i, node_j)
 
@@ -89,6 +121,18 @@ class BeamElement(ElementBase):
 
         self.extra_mass = extra_mass
         self.geometric_nonlinear = geometric_nonlinear
+        self.include_shear_deformation = bool(include_shear_deformation)
+
+        # Releases: 3 DOFs per node [u1, u2, theta] (axial, transverse, rotation)
+        self.releases_i = list(releases_i) if releases_i is not None else [False, False, False]
+        self.releases_j = list(releases_j) if releases_j is not None else [False, False, False]
+        if hinge_i:
+            self.releases_i[2] = True
+        if hinge_j:
+            self.releases_j[2] = True
+
+        self.hinge_i = bool(self.releases_i[2])
+        self.hinge_j = bool(self.releases_j[2])
 
         # State variables for non-linear updates
         self.L0 = None
@@ -105,14 +149,68 @@ class BeamElement(ElementBase):
         self.L0 = np.hypot(dx, dy)
         self.alpha0 = np.arctan2(dy, dx)
 
-    def local_stiffness(self):
+    def _apply_releases(self, k: np.ndarray) -> np.ndarray:
         """
-        Return the 6x6 element stiffness matrix in local coordinates.
+        Condense out released degrees of freedom via static condensation.
+
+        Parameters
+        ----------
+        k : numpy.ndarray
+            6x6 unreleased element stiffness matrix in local coordinates.
 
         Returns
         -------
         numpy.ndarray
-            Stiffness matrix in local coordinate system.
+            6x6 condensed stiffness matrix in local coordinates.
+        """
+        rel_flags = [False] * 6
+        if self.releases_i:
+            for i, r in enumerate(self.releases_i):
+                if r:
+                    rel_flags[i] = True
+        if self.releases_j:
+            for i, r in enumerate(self.releases_j):
+                if r:
+                    rel_flags[3 + i] = True
+
+        released_dofs = [idx for idx, flag in enumerate(rel_flags) if flag]
+        retained_dofs = [idx for idx, flag in enumerate(rel_flags) if not flag]
+
+        if not released_dofs:
+            return k
+
+        # Static condensation:
+        # [ K_rr  K_rc ] [ u_r ] = [ F_r ]
+        # [ K_cr  K_cc ] [ u_c ]   [ 0   ]
+        # K_condensed = K_rr - K_rc @ inv(K_cc) @ K_cr
+        K_rr = k[np.ix_(retained_dofs, retained_dofs)]
+        K_rc = k[np.ix_(retained_dofs, released_dofs)]
+        K_cr = k[np.ix_(released_dofs, retained_dofs)]
+        K_cc = k[np.ix_(released_dofs, released_dofs)]
+
+        K_cc_inv = np.linalg.pinv(K_cc)
+        K_r_star = K_rr - K_rc @ K_cc_inv @ K_cr
+
+        k_new = np.zeros((6, 6), dtype=float)
+        for i_idx, r_i in enumerate(retained_dofs):
+            for j_idx, r_j in enumerate(retained_dofs):
+                k_new[r_i, r_j] = K_r_star[i_idx, j_idx]
+        return k_new
+
+    def local_stiffness(self):
+        """
+        Return the 6x6 element stiffness matrix in local coordinates,
+        accounting for shear deformations (if enabled) and any released
+        degrees of freedom.
+
+        Reference:
+        Kassimali A. (2022). Matrix Analysis of Structures, Chapter 9,
+        Eq. (9.60) & Eq. (9.63), pp. 546-552.
+
+        Returns
+        -------
+        numpy.ndarray
+            6x6 local stiffness matrix.
         """
         E = self.material.E if self.material is not None else 1.0
         A = self.area
@@ -120,20 +218,44 @@ class BeamElement(ElementBase):
         L = self.length
 
         EA_L = E * A / L
-        EI_L3 = E * I / L**3
-        EI_L2 = E * I / L**2
-        EI_L = E * I / L
 
-        return np.array(
+        # Dimensionless shear deformation constant beta_s = 12*E*I / (G*As*L^2) (Eq. 9.60)
+        beta_s = 0.0
+        if self.include_shear_deformation and L > 0.0:
+            as_val = getattr(self.section, "As", None)
+            if as_val is None:
+                fs_val = getattr(self.section, "fs", None)
+                if fs_val is not None and fs_val > 0.0 and A is not None and A > 0.0:
+                    as_val = A / fs_val
+            g_val = getattr(self.material, "G", None)
+            if g_val is None and self.material is not None and hasattr(self.material, "E"):
+                nu_val = getattr(self.material, "nu", 0.3)
+                g_val = E / (2.0 * (1.0 + nu_val)) if nu_val != -1.0 else 0.0
+
+            if as_val is not None and as_val > 0.0 and g_val is not None and g_val > 0.0:
+                beta_s = (12.0 * E * I) / (g_val * as_val * L**2)
+
+        factor = 1.0 + beta_s
+        k12 = 12.0 * E * I / (L**3 * factor)
+        k6 = 6.0 * E * I / (L**2 * factor)
+        k4 = (4.0 + beta_s) * E * I / (L * factor)
+        k2 = (2.0 - beta_s) * E * I / (L * factor)
+
+        k = np.array(
             [
-                [EA_L, 0, 0, -EA_L, 0, 0],
-                [0, 12 * EI_L3, 6 * EI_L2, 0, -12 * EI_L3, 6 * EI_L2],
-                [0, 6 * EI_L2, 4 * EI_L, 0, -6 * EI_L2, 2 * EI_L],
-                [-EA_L, 0, 0, EA_L, 0, 0],
-                [0, -12 * EI_L3, -6 * EI_L2, 0, 12 * EI_L3, -6 * EI_L2],
-                [0, 6 * EI_L2, 2 * EI_L, 0, -6 * EI_L2, 4 * EI_L],
+                [EA_L, 0.0, 0.0, -EA_L, 0.0, 0.0],
+                [0.0, k12, k6, 0.0, -k12, k6],
+                [0.0, k6, k4, 0.0, -k6, k2],
+                [-EA_L, 0.0, 0.0, EA_L, 0.0, 0.0],
+                [0.0, -k12, -k6, 0.0, k12, -k6],
+                [0.0, k6, k2, 0.0, -k6, k4],
             ]
         )
+
+        if any(self.releases_i) or any(self.releases_j):
+            k = self._apply_releases(k)
+
+        return k
 
     def update_state(self, global_disp):
         """
@@ -256,6 +378,14 @@ class BeamElement(ElementBase):
             if hasattr(self, "eq_load") and self.eq_load is not None:
                 eq_load_local = T @ self.eq_load
                 self.f_local -= eq_load_local
+            if self.releases_i:
+                for i_dof, rel in enumerate(self.releases_i):
+                    if rel:
+                        self.f_local[i_dof] = 0.0
+            if self.releases_j:
+                for j_dof, rel in enumerate(self.releases_j):
+                    if rel:
+                        self.f_local[3 + j_dof] = 0.0
             self.K_global = T.T @ self.k_local @ T
             self.F_global = self.K_global @ u_global
 
@@ -285,6 +415,14 @@ class BeamElement(ElementBase):
             if hasattr(self, "eq_load") and self.eq_load is not None:
                 eq_load_local = T @ self.eq_load
                 f_loc -= eq_load_local
+            if self.releases_i:
+                for i_dof, rel in enumerate(self.releases_i):
+                    if rel:
+                        f_loc[i_dof] = 0.0
+            if self.releases_j:
+                for j_dof, rel in enumerate(self.releases_j):
+                    if rel:
+                        f_loc[3 + j_dof] = 0.0
             return f_loc
         return np.zeros(6)
 

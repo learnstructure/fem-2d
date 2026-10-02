@@ -67,7 +67,7 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
     from struct_core import AnalysisResult
 
 
-__all__ = ["model_from_core", "model_to_core", "result_to_core"]
+__all__ = ["model_from_core", "model_to_core", "result_to_core", "solve_combinations_and_envelope"]
 
 
 # ============================================================================
@@ -79,6 +79,7 @@ def model_from_core(
     model_or_project: Union[StructuralModel, Project],
     load_case_id: Optional[Union[int, str]] = None,
     validate: bool = True,
+    load_combination_id: Optional[str] = None,
 ) -> Structure:
     """
     Convert a struct_core ``StructuralModel`` (or ``Project``) into a fully
@@ -134,11 +135,11 @@ def model_from_core(
         elif isinstance(sec_schema, _ScCircularSection):
             sec_obj = _FemSection.from_circle(diameter=sec_schema.d)
         elif isinstance(sec_schema, _ScGeneralSection):
-            sec_obj = _FemSection(area=sec_schema.A, moi=sec_schema.Iz)
+            sec_obj = _FemSection(area=sec_schema.A, moi=sec_schema.I3)
         else:
             sec_obj = _FemSection(
                 area=getattr(sec_schema, "A", 1.0),
-                moi=getattr(sec_schema, "Iz", 1.0),
+                moi=getattr(sec_schema, "I3", 1.0),
             )
         sections_map[sec_schema.id] = sec_obj
 
@@ -161,9 +162,16 @@ def model_from_core(
 
     # 5. Convert Elements
     for elem_schema in model.elements:
+        if elem_schema.start_node not in structure.nodes or elem_schema.end_node not in structure.nodes:
+            continue
         node_i = structure.nodes[elem_schema.start_node]
         node_j = structure.nodes[elem_schema.end_node]
         elem_type = elem_schema.type
+
+        dx = float(node_j.x - node_i.x)
+        dy = float(node_j.y - node_i.y)
+        if (dx**2 + dy**2) < 1e-12 and elem_type != "spring":
+            continue
 
         if elem_type == "truss":
             mat = materials_map[elem_schema.material_id]
@@ -201,31 +209,91 @@ def model_from_core(
         structure.add_element(elem_obj)
 
     # 6. Apply Loads
-    target_load_case = None
-    if model.load_cases:
-        if load_case_id is not None:
-            target_load_case = next(
-                (lc for lc in model.load_cases if lc.id == load_case_id), None
-            )
-        else:
-            target_load_case = model.load_cases[0]
+    target_comb = None
+    if load_combination_id is not None:
+        target_comb = next(
+            (c for c in getattr(model, "load_combinations", []) if c.id == load_combination_id), None
+        )
+    elif load_case_id is not None and getattr(model, "load_combinations", None):
+        target_comb = next(
+            (c for c in model.load_combinations if c.id == load_case_id), None
+        )
 
-    if target_load_case is not None:
-        for pl_schema in target_load_case.point_loads:
-            if pl_schema.node_id in structure.nodes:
-                node_obj = structure.nodes[pl_schema.node_id]
-                load_obj = PointLoad(
-                    node=node_obj, fx=pl_schema.fx, fy=pl_schema.fy, mz=pl_schema.mz
-                )
-                structure.add_load(load_obj)
+    if target_comb is not None:
+        load_cases_map = {lc.id: lc for lc in getattr(model, "load_cases", [])}
+        for factor_obj in target_comb.factors:
+            lc = load_cases_map.get(factor_obj.load_case_id)
+            if not lc:
+                continue
+            factor = factor_obj.factor
+            for pl_schema in lc.point_loads:
+                if pl_schema.node_id in structure.nodes:
+                    node_obj = structure.nodes[pl_schema.node_id]
+                    structure.add_load(
+                        PointLoad(
+                            node=node_obj,
+                            fx=pl_schema.fx * factor,
+                            fy=pl_schema.fy * factor,
+                            mz=pl_schema.mz * factor,
+                        )
+                    )
+            for dl_schema in lc.element_loads:
+                if dl_schema.element_id in structure.elements:
+                    elem_obj = structure.elements[dl_schema.element_id]
+                    structure.add_load(
+                        DistributedLoad(
+                            element=elem_obj,
+                            wx=dl_schema.wx * factor,
+                            wy=dl_schema.wy * factor,
+                        )
+                    )
+    else:
+        cases_to_apply = []
+        if model.load_cases:
+            if load_case_id is not None and str(load_case_id).upper() not in ("ALL", "TOTAL", "ENVELOPE"):
+                cases_to_apply = [lc for lc in model.load_cases if str(lc.id).upper() == str(load_case_id).upper()]
+                if not cases_to_apply:
+                    cases_to_apply = [lc for lc in model.load_cases if str(getattr(lc, "name", "")).upper() == str(load_case_id).upper()]
+                if not cases_to_apply:
+                    active_cases = [
+                        lc for lc in model.load_cases
+                        if lc.point_loads or getattr(lc, "element_loads", []) or getattr(lc, "distributed_loads", [])
+                    ]
+                    cases_to_apply = active_cases if active_cases else [model.load_cases[0]]
+            else:
+                cases_to_apply = model.load_cases
 
-        for dl_schema in target_load_case.element_loads:
-            if dl_schema.element_id in structure.elements:
-                elem_obj = structure.elements[dl_schema.element_id]
-                dist_load_obj = DistributedLoad(
-                    element=elem_obj, wx=dl_schema.wx, wy=dl_schema.wy
+        for target_load_case in cases_to_apply:
+            for pl_schema in target_load_case.point_loads:
+                if pl_schema.node_id in structure.nodes:
+                    node_obj = structure.nodes[pl_schema.node_id]
+                    load_obj = PointLoad(
+                        node=node_obj, fx=pl_schema.fx, fy=pl_schema.fy, mz=pl_schema.mz
+                    )
+                    structure.add_load(load_obj)
+
+            loads_list = list(getattr(target_load_case, "element_loads", []) or getattr(target_load_case, "distributed_loads", []))
+            for dl_schema in loads_list:
+                if dl_schema.element_id in structure.elements:
+                    elem_obj = structure.elements[dl_schema.element_id]
+                    dist_load_obj = DistributedLoad(
+                        element=elem_obj,
+                        wx=float(getattr(dl_schema, "wx", 0.0) or 0.0),
+                        wy=float(getattr(dl_schema, "wy", 0.0) or 0.0),
+                    )
+                    structure.add_load(dist_load_obj)
+
+        # Legacy backward compatibility with model.loads
+        for ld in getattr(model, "loads", []):
+            if getattr(ld, "type", "") == "nodal_point" and ld.node_id in structure.nodes:
+                structure.add_load(
+                    PointLoad(
+                        node=structure.nodes[ld.node_id],
+                        fx=float(getattr(ld, "fx", 0.0) or 0.0),
+                        fy=float(getattr(ld, "fy", 0.0) or 0.0),
+                        mz=float(getattr(ld, "mz", 0.0) or 0.0),
+                    )
                 )
-                structure.add_load(dist_load_obj)
 
     return structure
 
@@ -401,7 +469,7 @@ def model_to_core(obj, *, validate: bool = True) -> StructuralModel:
         sc_id = f"S{sec_counter}"
         A = float(getattr(fem_sec, "A", getattr(fem_sec, "area", 0.0)))
         I = float(getattr(fem_sec, "I", getattr(fem_sec, "moi", 0.0)))
-        sc_sections.append(ScGeneralSection(id=sc_id, A=A, Iz=I))
+        sc_sections.append(ScGeneralSection(id=sc_id, A=A, I3=I, I2=I, J=2 * I if I > 0 else 1.0))
         sections_map[key] = sc_id
 
     # ---- Nodes ------------------------------------------------------------
@@ -431,6 +499,8 @@ def model_to_core(obj, *, validate: bool = True) -> StructuralModel:
             "BeamElementNL",
             "BeamElementMaterialNL",
         ):
+            rel_i = list(getattr(elem, "releases_i", [False, False, getattr(elem, "hinge_i", False)]))
+            rel_j = list(getattr(elem, "releases_j", [False, False, getattr(elem, "hinge_j", False)]))
             sc_elements.append(
                 ScBeamElement(
                     id=eid,
@@ -438,6 +508,8 @@ def model_to_core(obj, *, validate: bool = True) -> StructuralModel:
                     end_node=elem.node_j.id,
                     material_id=mat_id,
                     section_id=sec_id,
+                    release_i=rel_i,
+                    release_j=rel_j,
                     is_nonlinear=bool(getattr(elem, "geometric_nonlinear", False)),
                 )
             )
@@ -569,11 +641,11 @@ def _build_section_force(station: float, axial: float, shear: float, moment: flo
     return BeamSectionForce(
         station=station,
         P=axial,
-        Vy=shear,
-        Vz=0.0,
+        V2=shear,
+        V3=0.0,
         T=0.0,
-        My=0.0,
-        Mz=moment,
+        M2=0.0,
+        M3=moment,
     )
 
 
@@ -681,8 +753,8 @@ def result_to_core(
         stations = [s_i, s_j]
         # Envelopes: pick the station with the largest absolute magnitude.
         max_axial = s_i.P if abs(s_i.P) >= abs(s_j.P) else s_j.P
-        max_shear = s_i.Vy if abs(s_i.Vy) >= abs(s_j.Vy) else s_j.Vy
-        max_moment = s_i.Mz if abs(s_i.Mz) >= abs(s_j.Mz) else s_j.Mz
+        max_shear = s_i.V2 if abs(s_i.V2) >= abs(s_j.V2) else s_j.V2
+        max_moment = s_i.M3 if abs(s_i.M3) >= abs(s_j.M3) else s_j.M3
 
         element_results[eid] = ElementResult(
             element_id=eid,
@@ -697,3 +769,98 @@ def result_to_core(
         node_results=node_results,
         element_results=element_results,
     )
+
+
+def solve_combinations_and_envelope(
+    model_or_project: Union[StructuralModel, Project],
+    combination_ids: Optional[list] = None,
+    envelope_case_id: str = "Envelope",
+):
+    """
+    Solve all load combinations for a StructuralModel or Project and compile the governing force envelope.
+
+    Parameters
+    ----------
+    model_or_project : StructuralModel or Project
+        Input schema model or project.
+    combination_ids : list of str, optional
+        Specific load combination IDs to solve. If None, all model.load_combinations are solved.
+    envelope_case_id : str
+        ID for the resulting enveloped AnalysisResult. Defaults to 'Envelope'.
+
+    Returns
+    -------
+    Tuple[Dict[str, AnalysisResult], AnalysisResult]
+        (combination_results_dict, envelope_result)
+    """
+    from struct_core import AnalysisResult, ElementResult, NodeResult
+
+    if isinstance(model_or_project, Project):
+        model = model_or_project.model
+    else:
+        model = model_or_project
+
+    all_combs = getattr(model, "load_combinations", [])
+    if combination_ids is not None:
+        target_combs = [c for c in all_combs if c.id in combination_ids]
+    else:
+        target_combs = all_combs
+
+    if not target_combs:
+        struct = model_from_core(model)
+        struct.solve()
+        res = result_to_core(struct, analysis_case_id=envelope_case_id)
+        if isinstance(model_or_project, Project):
+            model_or_project.analysis_results[envelope_case_id] = res
+        return {envelope_case_id: res}, res
+
+    comb_results = {}
+    for comb in target_combs:
+        struct = model_from_core(model, load_combination_id=comb.id)
+        struct.solve()
+        res = result_to_core(struct, analysis_case_id=comb.id)
+        comb_results[comb.id] = res
+
+    # Compute envelope across all combination results
+    envelope_elements = {}
+    first_res = next(iter(comb_results.values()))
+
+    for eid in first_res.element_results.keys():
+        all_elem_res = [cr.element_results[eid] for cr in comb_results.values() if eid in cr.element_results]
+        if not all_elem_res:
+            continue
+
+        max_p = max(all_elem_res, key=lambda er: abs(er.max_axial or 0.0)).max_axial
+        max_m = max(all_elem_res, key=lambda er: abs(er.max_moment or 0.0)).max_moment
+        max_v = max(all_elem_res, key=lambda er: abs(er.max_shear or 0.0)).max_shear
+
+        gov_elem = max(all_elem_res, key=lambda er: abs(er.max_moment or 0.0))
+        envelope_elements[eid] = ElementResult(
+            element_id=eid,
+            forces=gov_elem.forces,
+            max_axial=max_p,
+            max_moment=max_m,
+            max_shear=max_v,
+        )
+
+    envelope_nodes = {}
+    for nid in first_res.node_results.keys():
+        all_node_res = [cr.node_results[nid] for cr in comb_results.values() if nid in cr.node_results]
+        gov_node = max(
+            all_node_res,
+            key=lambda nr: (nr.displacement.ux**2 + nr.displacement.uy**2) if nr.displacement else 0.0,
+        )
+        envelope_nodes[nid] = gov_node
+
+    envelope_analysis_res = AnalysisResult(
+        analysis_case_id=envelope_case_id,
+        node_results=envelope_nodes,
+        element_results=envelope_elements,
+    )
+
+    if isinstance(model_or_project, Project):
+        for cid, cres in comb_results.items():
+            model_or_project.analysis_results[cid] = cres
+        model_or_project.analysis_results[envelope_case_id] = envelope_analysis_res
+
+    return comb_results, envelope_analysis_res

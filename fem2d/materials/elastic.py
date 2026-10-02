@@ -17,7 +17,7 @@ class ElasticMaterial(UniaxialMaterial):
         Mass density (mass per unit volume) of the material. Defaults to 0.0.
     """
 
-    def __init__(self, E, rho=0.0):
+    def __init__(self, E, rho=0.0, nu=0.3, G=None):
         """
         Initialize an ElasticMaterial object.
 
@@ -27,9 +27,18 @@ class ElasticMaterial(UniaxialMaterial):
             Young's Modulus of the material.
         rho : float, optional
             Mass density (mass per unit volume) of the material. Defaults to 0.0.
+        nu : float, optional
+            Poisson's ratio. Defaults to 0.3.
+        G : float, optional
+            Shear modulus. If None, derived as G = E / (2 * (1 + nu)).
         """
-        self.E = E
-        self.rho = rho
+        self.E = float(E)
+        self.rho = float(rho)
+        self.nu = float(nu)
+        if G is not None:
+            self.G = float(G)
+        else:
+            self.G = self.E / (2.0 * (1.0 + self.nu)) if self.nu != -1.0 else 0.0
 
     def get_response(self, deformation, state=None):
         """

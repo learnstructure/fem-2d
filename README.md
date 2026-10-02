@@ -223,7 +223,27 @@ plotter.draw(
 )
 ```
 
-### 4. Ecosystem Integration with `struct_core`
+### 4. Member End Releases (Internal Hinges)
+
+Internal hinges and releases can be applied directly to `BeamElement` at either end via boolean flags or 3-DOF release vectors `[u1, u2, theta]`:
+
+```python
+from fem2d import BeamElement, BeamWithHingesElement
+
+# Moment release at end j (classical internal hinge)
+elem1 = BeamElement(1, node1, node2, material, section, hinge_j=True)
+
+# Moment release at start end i
+elem2 = BeamElement(2, node2, node3, material, section, hinge_i=True)
+
+# General 3-DOF release vector [u1, u2, theta] (consistent with fem3d)
+elem3 = BeamElement(3, node3, node4, material, section, releases_j=[False, False, True])
+
+# Backward compatibility: BeamWithHingesElement is retained and fully supported
+elem4 = BeamWithHingesElement(4, node4, node5, material, section, hinge_j=True)
+```
+
+### 5. Ecosystem Integration with `struct_core`
 
 `fem2d` ships with a three-function adapter to the
 [struct_core](https://github.com/learnstructure/struct_core) schema so that
@@ -241,12 +261,24 @@ effects, no global state. Naming follows `<artefact>_<direction>_<target>`:
 
 | Function | Direction | Purpose |
 | --- | --- | --- |
-| `model_from_core` | `struct_core → fem2d` | Build a `fem2d.Structure` from a `struct_core.StructuralModel` (or `Project`). |
+| `model_from_core` | `struct_core → fem2d` | Build a `fem2d.Structure` from a `struct_core.StructuralModel` (or `Project`), supporting individual load cases or factored load combinations. |
 | `model_to_core`   | `fem2d → struct_core` | Build a `struct_core.StructuralModel` from a `fem2d.Structure` / `SimpleFrame` / `Results`. |
 | `result_to_core`  | `fem2d → struct_core` | Build a `struct_core.AnalysisResult` from an analyzed `fem2d` model. |
+| `solve_combinations_and_envelope` | `struct_core → fem2d → struct_core` | Solve all factored load combinations and compile the governing max/min force envelope for design. |
 
 There is intentionally **no** `result_from_core` — round-tripping an
 `AnalysisResult` back into a `fem2d.Results` is out of scope.
+
+#### 4.0 Solve Factored Load Combinations & Force Envelopes
+
+```python
+from fem2d import solve_combinations_and_envelope
+
+# Solves all combinations in project.model.load_combinations, stores individual
+# combination results, and compiles an enveloped AnalysisResult with governing Pu, Mu, Vu
+comb_results, envelope_result = solve_combinations_and_envelope(project, envelope_case_id="Envelope")
+print("Governing envelope beam moment:", envelope_result.element_results[2].max_moment)
+```
 
 #### 4.1 Convert analysis results for downstream consumers
 

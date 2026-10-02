@@ -107,12 +107,8 @@ small_inertia = 1e-6
 for story in range(1, n_stories + 1):
     left_node_id = 2 * story + 1
     right_node_id = 2 * story + 2
-    
-    # Access the underlying structure to add mass
-    frame.structure.nodes[left_node_id].mass = mass_per_node
-    frame.structure.nodes[left_node_id].moment_inertia = small_inertia
-    frame.structure.nodes[right_node_id].mass = mass_per_node
-    frame.structure.nodes[right_node_id].moment_inertia = small_inertia
+    frame.structure.nodes[left_node_id].set_mass(mass=mass_per_node, inertia=small_inertia)
+    frame.structure.nodes[right_node_id].set_mass(mass=mass_per_node, inertia=small_inertia)
 
 # -------------------------------------------------------------------
 # Dynamic analysis using MDF (same as original)

@@ -22,7 +22,16 @@ from .elements.beam_materialNL import BeamElementMaterialNL
 from .utils.simple_frame import SimpleFrame
 from .solver import NewtonRaphsonSolver
 from .buckling_analysis import buckling_analysis
-from .adapters import model_from_core, model_to_core, result_to_core
+try:
+    from .adapters import model_from_core, model_to_core, result_to_core, solve_combinations_and_envelope
+except ImportError:  # struct_core is an optional dependency
+    def _missing_adapter(*args, **kwargs):
+        raise ImportError(
+            "The 'struct_core' package is required for this feature.\n"
+            "Install it with:  pip install struct_core\n"
+            "or install the optional extra:  pip install fem2d[ecosystem]"
+        )
+    model_from_core = model_to_core = result_to_core = solve_combinations_and_envelope = _missing_adapter
 
 try:
     from .utils.draw_structure import DrawStructure, plot_mode_shape

@@ -29,11 +29,9 @@ section = Section(A, I)
 
 # 3. Create elements
 elem1 = BeamElement(1, node1, node2, material, section)
-elem2 = BeamWithHingesElement(2, node2, node3, material, section, hinge_i=False, hinge_j=True)
+elem2 = BeamElement(2, node2, node3, material, section, hinge_j=True)
+# Note: BeamWithHingesElement(2, node2, node3, material, section, hinge_j=True) also supported
 elem3 = BeamElement(3, node3, node4, material, section)
-
-# elem2 = BeamElement(2, node2, node3, material, section)
-# elem3 = BeamWithHingesElement(3, node3, node4, material, section, hinge_i=True, hinge_j=False)
 
 # 4. Create structure and add nodes/elements
 structure = Structure()

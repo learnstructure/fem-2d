@@ -91,8 +91,7 @@ for story in range(n_stories):
         bottom_node,
         top_node,
         material,
-        column_section.A,
-        column_section.I,
+        column_section
     )
     structure.add_element(col)
 

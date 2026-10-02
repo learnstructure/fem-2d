@@ -1,43 +1,68 @@
-# Ignore Python cache files
+# Byte-compiled / cache files
 __pycache__/
-*.pyc
-*.pyo
+*.py[cod]
+*$py.class
+*.so
 *.pyd
 
-# Ignore virtual environments
-venv/
-.env/
-
-# Ignore setuptools build artifacts
-*.egg-info/
+# Distribution / packaging
 dist/
 build/
+*.egg-info/
+*.egg
+.eggs/
 
-# Ignore Jupyter Notebook checkpoints
+# Virtual environments
+.venv/
+venv/
+env/
+.env/
+ENV/
+
+# Testing & coverage
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+
+# IDEs and editors
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Jupyter Notebook
 .ipynb_checkpoints/
 
-# Ignore system files
+# OS-generated files
 .DS_Store
 Thumbs.db
+ehthumbs.db
 
-sharing/
-extra/
-trash/
-
+# Documentation build / generated files
+docs/build/
+docs/source/api/
 README.pdf
 readme.pdf
 paper.pdf
 
-docs/build/
-docs/source/api/
-
-
+# Credentials & secrets
 .pypirc
-notebooks/
 
-examples/non_linear/truss_buckling.py
-
+# Generated figures / images
 *.png
 *.jpg
+*.jpeg
+*.svg
 
+# Project-specific scratch / temporary folders
+sharing/
+extra/
+trash/
+notebooks/
+references/
 agent.md
+
+# Work in progress / experimental scripts
+examples/non_linear/truss_buckling.py
