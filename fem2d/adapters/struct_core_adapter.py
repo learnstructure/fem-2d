@@ -63,6 +63,13 @@ from fem2d.nodes import Node as _FemNode
 from fem2d.sections.section import Section as _FemSection
 from fem2d.structure import Structure
 
+try:
+    from struct_load.engine.self_weight import calculate_self_weight as _calc_self_weight
+    _STRUCT_LOAD_AVAILABLE = True
+except ImportError:
+    _calc_self_weight = None
+    _STRUCT_LOAD_AVAILABLE = False
+
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from struct_core import AnalysisResult
 
@@ -80,6 +87,10 @@ def model_from_core(
     load_case_id: Optional[Union[int, str]] = None,
     validate: bool = True,
     load_combination_id: Optional[str] = None,
+    include_self_weight: bool = True,
+    unit_system: Optional[str] = None,
+    gravity_accel: Optional[float] = None,
+    include_shear_deformation: Optional[bool] = None,
 ) -> Structure:
     """
     Convert a struct_core ``StructuralModel`` (or ``Project``) into a fully
@@ -95,6 +106,20 @@ def model_from_core(
     validate : bool, optional
         Whether to run structural validation rules before building.
         Defaults to ``True``.
+    load_combination_id : str, optional
+        The specific load combination ID to apply.
+    include_self_weight : bool, optional
+        Whether to automatically compute and include element self-weight for any
+        load case where `include_self_weight=True`. Defaults to True.
+        Uses `struct_load.engine.self_weight.calculate_self_weight`.
+    unit_system : str, optional
+        'si' or 'us'. If model_or_project is a Project, inferred from `project.metadata.units`.
+    gravity_accel : float, optional
+        Gravity acceleration (defaults to 9.80665 for SI, 386.08858 for US).
+    include_shear_deformation : bool, optional
+        Whether to consider shear deformation (Timoshenko beam theory) in beam elements.
+        If None (default), reads `include_shear_deformation` from each `struct_core.BeamElement`.
+        If True or False, overrides all beam elements in the model.
 
     Returns
     -------
@@ -135,11 +160,13 @@ def model_from_core(
         elif isinstance(sec_schema, _ScCircularSection):
             sec_obj = _FemSection.from_circle(diameter=sec_schema.d)
         elif isinstance(sec_schema, _ScGeneralSection):
-            sec_obj = _FemSection(area=sec_schema.A, moi=sec_schema.I3)
+            as_val = getattr(sec_schema, "As2", getattr(sec_schema, "as2", getattr(sec_schema, "Ay", None)))
+            sec_obj = _FemSection(area=sec_schema.A, moi=sec_schema.I3, As=as_val)
         else:
             sec_obj = _FemSection(
                 area=getattr(sec_schema, "A", 1.0),
                 moi=getattr(sec_schema, "I3", 1.0),
+                As=getattr(sec_schema, "As2", None),
             )
         sections_map[sec_schema.id] = sec_obj
 
@@ -186,6 +213,11 @@ def model_from_core(
         elif elem_type == "beam":
             mat = materials_map[elem_schema.material_id]
             sec = sections_map[elem_schema.section_id]
+            elem_shear = (
+                include_shear_deformation
+                if include_shear_deformation is not None
+                else getattr(elem_schema, "include_shear_deformation", False)
+            )
             elem_obj = _FemBeamElement(
                 eid=elem_schema.id,
                 node_i=node_i,
@@ -193,6 +225,7 @@ def model_from_core(
                 material=mat,
                 section=sec,
                 geometric_nonlinear=elem_schema.is_nonlinear,
+                include_shear_deformation=elem_shear,
             )
         elif elem_type == "spring":
             elem_obj = _FemSpringElement(
@@ -209,6 +242,78 @@ def model_from_core(
         structure.add_element(elem_obj)
 
     # 6. Apply Loads
+    # Determine unit system and gravity acceleration for self-weight
+    if unit_system is None:
+        if isinstance(model_or_project, Project) and getattr(model_or_project, "metadata", None) and getattr(model_or_project.metadata, "units", None):
+            units = model_or_project.metadata.units
+            if getattr(units, "is_us_customary", False):
+                unit_system = "us"
+            elif getattr(units, "is_metric", False):
+                unit_system = "si"
+            else:
+                length_u = str(getattr(units, "length", "m")).lower()
+                force_u = str(getattr(units, "force", "kn")).lower()
+                if length_u in ("in", "ft", "inch", "feet") or force_u in ("kip", "kips", "lb", "lbf", "psi", "ksi"):
+                    unit_system = "us"
+                else:
+                    unit_system = "si"
+            if gravity_accel is None:
+                gravity_accel = getattr(units, "gravity_acceleration", None)
+        else:
+            unit_system = "si"
+            if hasattr(model, "materials"):
+                for m in model.materials:
+                    uw = getattr(m, "unit_weight", None)
+                    if uw is not None and 0 < uw < 1.0:
+                        unit_system = "us"
+                        break
+
+    if gravity_accel is None:
+        gravity_accel = 386.08858 if str(unit_system).lower() == "us" else 9.80665
+
+    sw_cache = {}
+
+    def _apply_case_self_weight_2d(case_id: str, factor: float = 1.0):
+        if not include_self_weight:
+            return
+        if _calc_self_weight is None:
+            import warnings
+            warnings.warn(
+                f"Load case '{case_id}' has include_self_weight=True, but 'struct_load' is not installed. "
+                "Self-weight was not added to the analysis model. Install struct_load to enable automatic self-weight.",
+                UserWarning,
+                stacklevel=2,
+            )
+            return
+
+        if case_id not in sw_cache:
+            sw_cache[case_id] = _calc_self_weight(
+                model=model,
+                load_case_id=case_id,
+                gravity_accel=gravity_accel,
+                unit_system=unit_system,
+                direction="-y",
+            )
+        sw_case = sw_cache[case_id]
+
+        for dl in getattr(sw_case, "element_loads", []):
+            eid = dl.element_id
+            if eid in structure.elements:
+                elem_obj = structure.elements[eid]
+                w_mag = abs(float(getattr(dl, "wy", 0.0) or getattr(dl, "wx", 0.0) or 0.0))
+                if w_mag <= 0.0:
+                    continue
+                if isinstance(elem_obj, _FemTrussElement):
+                    total_w = w_mag * factor * elem_obj.length
+                    structure.add_load(PointLoad(elem_obj.node_i, fy=-0.5 * total_w))
+                    structure.add_load(PointLoad(elem_obj.node_j, fy=-0.5 * total_w))
+                else:
+                    c = getattr(elem_obj, "cos", 1.0)
+                    s = getattr(elem_obj, "sin", 0.0)
+                    wx_loc = -w_mag * factor * s
+                    wy_loc = -w_mag * factor * c
+                    structure.add_load(DistributedLoad(element=elem_obj, wx=wx_loc, wy=wy_loc))
+
     target_comb = None
     if load_combination_id is not None:
         target_comb = next(
@@ -247,6 +352,8 @@ def model_from_core(
                             wy=dl_schema.wy * factor,
                         )
                     )
+            if getattr(lc, "include_self_weight", False):
+                _apply_case_self_weight_2d(lc.id, factor=factor)
     else:
         cases_to_apply = []
         if model.load_cases:
@@ -257,7 +364,10 @@ def model_from_core(
                 if not cases_to_apply:
                     active_cases = [
                         lc for lc in model.load_cases
-                        if lc.point_loads or getattr(lc, "element_loads", []) or getattr(lc, "distributed_loads", [])
+                        if lc.point_loads
+                        or getattr(lc, "element_loads", [])
+                        or getattr(lc, "distributed_loads", [])
+                        or (include_self_weight and getattr(lc, "include_self_weight", False))
                     ]
                     cases_to_apply = active_cases if active_cases else [model.load_cases[0]]
             else:
@@ -283,17 +393,8 @@ def model_from_core(
                     )
                     structure.add_load(dist_load_obj)
 
-        # Legacy backward compatibility with model.loads
-        for ld in getattr(model, "loads", []):
-            if getattr(ld, "type", "") == "nodal_point" and ld.node_id in structure.nodes:
-                structure.add_load(
-                    PointLoad(
-                        node=structure.nodes[ld.node_id],
-                        fx=float(getattr(ld, "fx", 0.0) or 0.0),
-                        fy=float(getattr(ld, "fy", 0.0) or 0.0),
-                        mz=float(getattr(ld, "mz", 0.0) or 0.0),
-                    )
-                )
+            if getattr(target_load_case, "include_self_weight", False):
+                _apply_case_self_weight_2d(target_load_case.id, factor=1.0)
 
     return structure
 
@@ -422,7 +523,8 @@ def model_to_core(obj, *, validate: bool = True) -> StructuralModel:
         """Hashable key for section deduplication."""
         A = float(getattr(fem_sec, "A", getattr(fem_sec, "area", 0.0)))
         I = float(getattr(fem_sec, "I", getattr(fem_sec, "moi", 0.0)))
-        return (round(A, 12), round(I, 12))
+        As = getattr(fem_sec, "As", None)
+        return (round(A, 12), round(I, 12), round(float(As), 12) if As is not None else None)
 
     sc_materials: list = []
     materials_map: dict = {}  # material_key -> sc_id
@@ -455,7 +557,7 @@ def model_to_core(obj, *, validate: bool = True) -> StructuralModel:
             )
         materials_map[key] = sc_id
 
-    # ---- Sections (deduplicated by A, I) ----------------------------------
+    # ---- Sections (deduplicated by A, I, As) -------------------------------
     sc_sections: list = []
     sections_map: dict = {}  # section_key -> sc_id
     sec_counter = 0
@@ -469,7 +571,9 @@ def model_to_core(obj, *, validate: bool = True) -> StructuralModel:
         sc_id = f"S{sec_counter}"
         A = float(getattr(fem_sec, "A", getattr(fem_sec, "area", 0.0)))
         I = float(getattr(fem_sec, "I", getattr(fem_sec, "moi", 0.0)))
-        sc_sections.append(ScGeneralSection(id=sc_id, A=A, I3=I, I2=I, J=2 * I if I > 0 else 1.0))
+        As = getattr(fem_sec, "As", None)
+        as_float = float(As) if As is not None else None
+        sc_sections.append(ScGeneralSection(id=sc_id, A=A, I3=I, I2=I, J=2 * I if I > 0 else 1.0, As2=as_float, As3=as_float))
         sections_map[key] = sc_id
 
     # ---- Nodes ------------------------------------------------------------
@@ -511,6 +615,7 @@ def model_to_core(obj, *, validate: bool = True) -> StructuralModel:
                     release_i=rel_i,
                     release_j=rel_j,
                     is_nonlinear=bool(getattr(elem, "geometric_nonlinear", False)),
+                    include_shear_deformation=bool(getattr(elem, "include_shear_deformation", False)),
                 )
             )
         elif cls_name in ("TrussElement", "TrussElementNL"):

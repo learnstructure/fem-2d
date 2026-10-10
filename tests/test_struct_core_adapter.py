@@ -418,3 +418,110 @@ def test_load_combination_and_envelope_solving():
 
     assert abs(b2_comb2.max_moment) > abs(b2_comb1.max_moment)
     assert abs(b2_env.max_moment) == pytest.approx(abs(b2_comb2.max_moment), rel=1e-5)
+
+
+def test_model_from_core_with_self_weight_2d():
+    from fem2d.adapters import model_from_core
+    from fem2d.results import Results
+    from struct_core import (
+        StructuralModel,
+        Node,
+        Support,
+        ElasticMaterial,
+        RectangularSection,
+        BeamElement,
+        LoadCase,
+        LoadCombination,
+        LoadCaseFactor,
+    )
+
+    nodes = [
+        Node(id=1, x=0.0, y=0.0),
+        Node(id=2, x=10.0, y=0.0),
+    ]
+    mat = ElasticMaterial(id="Conc", E=3e7, rho=2400.0)
+    sec = RectangularSection(id="B1", b=0.5, h=1.0)
+    elements = [
+        BeamElement(id=1, start_node=1, end_node=2, material_id="Conc", section_id="B1"),
+    ]
+    supports = [Support.fixed(node_id=1)]
+    lc_dead = LoadCase(id="DEAD", name="Dead Load", include_self_weight=True)
+    comb_14d = LoadCombination(
+        id="1.4D",
+        factors=[LoadCaseFactor(load_case_id="DEAD", factor=1.4)],
+    )
+
+    model = StructuralModel(
+        nodes=nodes,
+        materials=[mat],
+        sections=[sec],
+        elements=elements,
+        supports=supports,
+        load_cases=[lc_dead],
+        load_combinations=[comb_14d],
+    )
+
+    # 1. Automatic self-weight included
+    struct = model_from_core(model, load_case_id="DEAD", include_self_weight=True)
+    assert len(struct.loads) == 1
+    struct.solve()
+    reac_df = Results(struct).reactions()
+    node1_fy = reac_df.loc[reac_df["node"] == 1, "Fy"].values[0]
+    expected_w = (2400.0 * 0.5 * 9.80665 / 1000.0) * 10.0
+    assert pytest.approx(node1_fy, rel=1e-3) == expected_w
+
+    # 2. Self-weight disabled
+    struct_no_sw = model_from_core(model, load_case_id="DEAD", include_self_weight=False)
+    assert len(struct_no_sw.loads) == 0
+
+    # 3. In load combination with factor 1.4
+    struct_comb = model_from_core(model, load_combination_id="1.4D", include_self_weight=True)
+    assert len(struct_comb.loads) == 1
+    struct_comb.solve()
+    comb_reac_df = Results(struct_comb).reactions()
+    comb_node1_fy = comb_reac_df.loc[comb_reac_df["node"] == 1, "Fy"].values[0]
+    assert pytest.approx(comb_node1_fy, rel=1e-3) == expected_w * 1.4
+
+
+def test_model_from_core_shear_deformation():
+    from struct_core import (
+        StructuralModel,
+        Node,
+        Support,
+        ElasticMaterial,
+        GeneralSection,
+        BeamElement,
+        PointLoad,
+        LoadCase,
+    )
+
+    nodes = [
+        Node(id=1, x=0.0, y=0.0),
+        Node(id=2, x=5.0, y=0.0),
+    ]
+    mat = ElasticMaterial(id="Steel", E=200e6, nu=0.3)
+    sec = GeneralSection(id="Sec1", A=0.01, I3=1e-4, As2=0.008)
+    elements = [
+        BeamElement(id=1, start_node=1, end_node=2, material_id="Steel", section_id="Sec1"),
+    ]
+    supports = [Support.fixed(node_id=1)]
+    lc = LoadCase(id="LC1", point_loads=[PointLoad(node_id=2, fy=-100.0)])
+    model = StructuralModel(nodes=nodes, materials=[mat], sections=[sec], elements=elements, supports=supports, load_cases=[lc])
+
+    # 1. With shear deformation explicitly disabled
+    struct_eb = model_from_core(model, include_shear_deformation=False)
+    assert struct_eb.elements[1].include_shear_deformation is False
+    struct_eb.solve()
+    disp_eb = Results(struct_eb).node_displacements()
+    tip_dy_eb = abs(disp_eb.loc[disp_eb["node"] == 2, "uy"].values[0])
+
+    # 2. With shear deformation explicitly enabled
+    struct_timo = model_from_core(model, include_shear_deformation=True)
+    assert struct_timo.elements[1].include_shear_deformation is True
+    assert struct_timo.elements[1].section.As == 0.008
+    struct_timo.solve()
+    disp_timo = Results(struct_timo).node_displacements()
+    tip_dy_timo = abs(disp_timo.loc[disp_timo["node"] == 2, "uy"].values[0])
+
+    # Timoshenko beam includes additional shear flexibility: tip deflection must be strictly greater
+    assert tip_dy_timo > tip_dy_eb

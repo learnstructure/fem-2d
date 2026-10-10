@@ -104,9 +104,15 @@ class CSVMaterial(UniaxialMaterial):
         if zero_idx < len(self.x_full) - 1:
             dx = self.x_full[zero_idx + 1] - self.x_full[zero_idx]
             dy = self.y_full[zero_idx + 1] - self.y_full[zero_idx]
-            self.E_init = dy / dx if dx != 0.0 else 0.0
+            if dx <= 0.0:
+                raise ValueError(
+                    f"Invalid non-increasing strain in CSV material curve at zero crossing: dx={dx}."
+                )
+            self.E_init = dy / dx
         else:
-            self.E_init = 1.0  # fallback
+            raise ValueError(
+                "CSV material curve does not contain points beyond zero to determine initial elastic modulus E."
+            )
 
         # Initial state for path-dependent unloading/reloading
         self.init_state = {

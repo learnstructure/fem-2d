@@ -15,7 +15,8 @@ Documentation: [![Documentation Status](https://readthedocs.org/projects/fem2d/b
 ## Features
 
 - **Element Library:**
-  - **Beam Element:** Elastic 2D Euler-Bernoulli beam elements including axial and bending stiffness (shear deformation is neglected). Supports uniform and varying member loads, moment releases (hinges), and rotational/translational mass.
+  - **Beam Element:** Elastic 2D beam elements supporting both classical Euler-Bernoulli and Timoshenko beam formulations with shear deformation ($\beta_s = \frac{12EI}{GA_s L^2}$). Supports uniform and varying member loads, moment releases (hinges at either end or general 3-DOF releases), and rotational/translational mass.
+  - **BeamWithHingesElement:** Beam with optional moment releases at either end (retained for backward compatibility).
   - **Truss Element:** Pin-jointed bar elements with axial stiffness only. The same `TrussElement` class is used for linear and corotational geometrically-nonlinear analyses.
   - **Spring Element:** 2D elastic spring elements with customizable axial stiffness.
 - **Analysis Types:**
@@ -42,7 +43,7 @@ fem-2d/
 │   ├── m_phi_analysis.py        # Cross-section moment-curvature (M-φ) analysis
 │   ├── elements/                # Structural element library
 │   │   ├── element.py           # Abstract base element class (ElementBase)
-│   │   ├── beam.py              # 2D Euler-Bernoulli beam (axial + bending stiffness, mass, deformed shape)
+│   │   ├── beam.py              # 2D beam (axial + bending + Timoshenko shear deformation, releases, mass)
 │   │   ├── beam_hinges.py       # Beam element with moment releases (hinge_i, hinge_j)
 │   │   ├── truss.py             # Linear and corotational geometrically non-linear truss element
 │   │   ├── spring.py            # 2D translational elastic spring element
@@ -243,7 +244,79 @@ elem3 = BeamElement(3, node3, node4, material, section, releases_j=[False, False
 elem4 = BeamWithHingesElement(4, node4, node5, material, section, hinge_j=True)
 ```
 
-### 5. Ecosystem Integration with `struct_core`
+### 5. Timoshenko Beam Formulation (Shear Deformation)
+
+`BeamElement` supports both classical Euler-Bernoulli beam theory and Timoshenko beam theory with shear deformation effects. When `include_shear_deformation=True` (or when shear area $A_s$ or cross-section depth $h$ and Poisson's ratio $\nu$ are provided), `fem2d` includes the transverse shear flexibility factor:
+
+$$\beta_s = \frac{12 E I}{G A_s L^2}$$
+
+where $G = \frac{E}{2(1+\nu)}$ is the shear modulus, $A_s = \kappa A$ is the effective shear area ($\kappa \approx 5/6$ for rectangular sections), $I$ is the moment of inertia, and $L$ is the member length.
+
+The local transverse stiffness terms are modified accordingly:
+
+$$k_{12} = \frac{12 E I}{L^3 (1 + \beta_s)}, \quad k_6 = \frac{6 E I}{L^2 (1 + \beta_s)}$$
+
+$$k_4 = \frac{(4 + \beta_s) E I}{L (1 + \beta_s)}, \quad k_2 = \frac{(2 - \beta_s) E I}{L (1 + \beta_s)}$$
+
+```python
+from fem2d import Structure, Node, Section, ElasticMaterial, BeamElement
+
+structure = Structure()
+node1 = Node(1, 0.0, 0.0)
+node2 = Node(2, 60.0, 0.0)  # Short/deep beam (L = 60 in)
+structure.add_node(node1)
+structure.add_node(node2)
+
+# Material with shear modulus G derived from E and nu
+material = ElasticMaterial(E=29000.0, nu=0.3)
+
+# Rectangular section with shear area As automatically computed: As = (5/6) * b * h
+section = Section.from_rectangle(width=10.0, depth=25.0, include_shear_deformation=True)
+
+# Define beam element with shear deformation enabled
+elem = BeamElement(
+    1, node1, node2,
+    material=material,
+    section=section,
+    include_shear_deformation=True,
+)
+structure.add_element(elem)
+node1.set_support(1, 1, 1)  # Fixed support
+node2.set_load(fy=-50.0)    # 50 kip tip load
+structure.solve()
+```
+
+For deep beams or short spans ($L/h < 5$), shear deformation can significantly increase deflections and redistribute internal forces compared to classical slender beam theory.
+
+### 6. Dynamic & Modal Analysis Bridge with `structdyn`
+
+`fem2d` seamlessly bridges into `structdyn` for eigenvalue modal analysis and transient earthquake time-history integration:
+
+```python
+from fem2d import SimpleFrame
+from structdyn import MDF, GroundMotion, elcentro_chopra
+
+# Build 2D frame with lumped story mass
+frame = SimpleFrame()
+# ... add nodes, frames, supports, and lumped masses ...
+
+# Create dynamic MDF system with 5% modal damping on the first 3 modes
+mdf = MDF.from_fem2d(frame.structure, zeta=0.05, n_modes=3)
+
+# 1. Eigenvalue Modal Analysis
+omega, phi = mdf.modal.modal_analysis(n_modes=3)
+freqs = omega / (2.0 * 3.14159)
+periods = 1.0 / freqs
+print("Natural Periods (s):", periods)
+
+# 2. Transient Earthquake Response History
+elc = elcentro_chopra()
+gm = GroundMotion.from_arrays(elc["acc (g)"], dt=0.02, scale_factor=386.09)
+response = mdf.find_response_ground_motion(gm, direction="x", method="newmark_beta")
+print("Peak Roof Displacement (in):", response["u5"].abs().max())
+```
+
+### 7. Ecosystem Integration with `struct_core`
 
 `fem2d` ships with a three-function adapter to the
 [struct_core](https://github.com/learnstructure/struct_core) schema so that
@@ -261,7 +334,7 @@ effects, no global state. Naming follows `<artefact>_<direction>_<target>`:
 
 | Function | Direction | Purpose |
 | --- | --- | --- |
-| `model_from_core` | `struct_core → fem2d` | Build a `fem2d.Structure` from a `struct_core.StructuralModel` (or `Project`), supporting individual load cases or factored load combinations. |
+| `model_from_core` | `struct_core → fem2d` | Build a `fem2d.Structure` from a `struct_core.StructuralModel` (or `Project`), supporting individual load cases, factored load combinations, and automatic member self-weight calculation via `struct_load`. |
 | `model_to_core`   | `fem2d → struct_core` | Build a `struct_core.StructuralModel` from a `fem2d.Structure` / `SimpleFrame` / `Results`. |
 | `result_to_core`  | `fem2d → struct_core` | Build a `struct_core.AnalysisResult` from an analyzed `fem2d` model. |
 | `solve_combinations_and_envelope` | `struct_core → fem2d → struct_core` | Solve all factored load combinations and compile the governing max/min force envelope for design. |
