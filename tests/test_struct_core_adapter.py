@@ -525,3 +525,67 @@ def test_model_from_core_shear_deformation():
 
     # Timoshenko beam includes additional shear flexibility: tip deflection must be strictly greater
     assert tip_dy_timo > tip_dy_eb
+
+
+def test_model_from_core_mass_source():
+    from struct_core import (
+        BeamElement,
+        ElasticMaterial,
+        GeneralSection,
+        LoadCase,
+        MassSource,
+        MassSourceFactor,
+        Node,
+        PointLoad,
+        StructuralModel,
+        Support,
+    )
+
+    nodes = [
+        Node(id=1, x=0.0, y=0.0),
+        Node(id=2, x=0.0, y=4.0),
+    ]
+    mat = ElasticMaterial(id="Steel", E=200e6, rho=7850.0)
+    sec = GeneralSection(id="ColSec", A=0.02, I3=2e-4)
+    elements = [
+        BeamElement(id=1, start_node=1, end_node=2, material_id="Steel", section_id="ColSec"),
+    ]
+    supports = [Support.fixed(node_id=1)]
+
+    # Dead load: 100 kN tip vertical load
+    # Live load: 50 kN tip vertical load
+    lc_dead = LoadCase(id="DEAD", point_loads=[PointLoad(node_id=2, fy=-100.0)])
+    lc_live = LoadCase(id="LIVE", point_loads=[PointLoad(node_id=2, fy=-50.0)])
+
+    ms = MassSource(
+        id="MS1",
+        include_element_mass=True,
+        include_added_mass=True,
+        lateral_only=False,
+        factors=[
+            MassSourceFactor(load_case_id="DEAD", factor=1.0),
+            MassSourceFactor(load_case_id="LIVE", factor=0.25),
+        ],
+    )
+
+    model = StructuralModel(
+        nodes=nodes,
+        materials=[mat],
+        sections=[sec],
+        elements=elements,
+        supports=supports,
+        load_cases=[lc_dead, lc_live],
+        mass_source=ms,
+    )
+
+    struct = model_from_core(model, mass_source=ms)
+    assert hasattr(struct, "mass_source_result")
+    # Total tip load = 100 + 0.25 * 50 = 112.5 kN
+    # Lumped mass at node 2 should be approx 112.5 / 9.80665 = 11.4717 tonne
+    m_node2 = struct.nodes[2].mass
+    assert pytest.approx(m_node2, rel=1e-3) == 112.5 / 9.80665
+
+    # Run modal analysis
+    modal = struct.modal_analysis(num_modes=2)
+    assert len(modal["frequencies"]) == 2
+    assert modal["periods"][0] > 0.0

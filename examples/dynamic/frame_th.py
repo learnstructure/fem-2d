@@ -61,7 +61,7 @@ for story in range(1, n_stories + 1):
         right_node,
         material,
         beam_section,
-        extra_mass=0.0,  # no distributed mass
+        mass=0.0,  # no distributed mass
     )
     structure.add_element(beam)
 

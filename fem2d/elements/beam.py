@@ -13,7 +13,7 @@ class BeamElement(ElementBase):
 
     The element formulation is the classical Euler-Bernoulli beam (shear
     deformation is neglected), so only axial and flexural degrees of freedom
-    are considered. Optional distributed ``extra_mass`` and a corotational
+    are considered. Optional distributed ``mass`` and a corotational
     geometrically-nonlinear formulation are supported.
 
     End releases (hinges) can be specified either via boolean flags:
@@ -30,7 +30,7 @@ class BeamElement(ElementBase):
         Cross-sectional area.
     inertia : float
         Moment of inertia of the cross-section.
-    extra_mass : float
+    mass : float
         Additional distributed mass per unit length (e.g. non-structural mass).
     hinge_i : bool
         Whether end i has a moment release (hinge).
@@ -49,7 +49,7 @@ class BeamElement(ElementBase):
         node_j,
         material,
         section,
-        extra_mass: float = 0.0,
+        mass: float = 0.0,
         geometric_nonlinear: bool = False,
         hinge_i: bool = False,
         hinge_j: bool = False,
@@ -72,7 +72,7 @@ class BeamElement(ElementBase):
             Material definition.
         section : Section
             Section definition (containing A and I).
-        extra_mass : float, optional
+        mass : float, optional
             Additional distributed mass per unit length. Defaults to 0.0.
         geometric_nonlinear : bool, optional
             Whether to use corotational geometric non-linear formulation. Defaults to False.
@@ -92,6 +92,7 @@ class BeamElement(ElementBase):
         super().__init__(eid, node_i, node_j)
 
         # Handle Section object or numeric area/inertia fallback
+        effective_mass = mass
         if hasattr(section, "A") and hasattr(section, "I"):
             self.section = section
             self.area = section.A
@@ -103,23 +104,23 @@ class BeamElement(ElementBase):
             self.inertia = material.I
             self.material = getattr(material, "material", None)
             if isinstance(section, (int, float)):
-                extra_mass = float(section)
+                effective_mass = float(section)
         elif isinstance(section, (int, float)):
             from fem2d.sections.section import Section
             area_val = float(section)
-            moi_val = float(extra_mass) if isinstance(extra_mass, (int, float)) else 0.0
+            moi_val = float(effective_mass) if isinstance(effective_mass, (int, float)) else 0.0
             self.section = Section(area_val, moi_val)
             self.area = area_val
             self.inertia = moi_val
             self.material = material
-            extra_mass = 0.0
+            effective_mass = 0.0
         else:
             self.material = material
             self.section = section
             self.area = getattr(section, "A", None)
             self.inertia = getattr(section, "I", None)
 
-        self.extra_mass = extra_mass
+        self.mass = float(effective_mass)
         self.geometric_nonlinear = geometric_nonlinear
         self.include_shear_deformation = bool(include_shear_deformation)
 
@@ -141,6 +142,7 @@ class BeamElement(ElementBase):
         self.F_global = None
         self.k_local = None
         self.K_global = None
+
 
     def _update_initial_geometry(self):
         """Compute initial length and chord angle."""
@@ -513,7 +515,7 @@ class BeamElement(ElementBase):
         A = self.area
         I = self.inertia
         rho = self.material.rho
-        extra = self.extra_mass
+        extra = self.mass
 
         # Effective density for translational part: material + extra
         rho_eff = rho + (extra / A) if A != 0 else rho

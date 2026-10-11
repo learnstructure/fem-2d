@@ -381,3 +381,183 @@ class Structure:
         K_ff = self.K[np.ix_(self.free_dofs, self.free_dofs)]
         M_ff = self.M[np.ix_(self.free_dofs, self.free_dofs)]
         return K_ff, M_ff
+
+    def modal_analysis(self, num_modes: int = 6):
+        """
+        Perform 2D undamped eigenvalue modal analysis.
+
+        Solves the generalized eigenvalue problem:
+        (K_ff - omega^2 * M_ff) * phi = 0
+        delegating matrix regularization and eigensolution to structdyn.ModalAnalysis.
+
+        Parameters
+        ----------
+        num_modes : int, optional
+            Number of vibration modes to compute. Defaults to 6.
+
+        Returns
+        -------
+        dict
+            Dictionary containing natural frequencies, periods, and mode shapes:
+            - 'omega': circular frequencies in rad/s (1D array)
+            - 'frequencies': cyclic frequencies in Hz (1D array)
+            - 'periods': natural periods in seconds (1D array)
+            - 'modes': mode shapes expanded to full global DOF space (neq x n_modes), normalized to peak 1.0
+            - 'phi': reduced mode shape matrix on free DOFs (n_free x n_modes)
+        """
+        from structdyn.mdf.mdf import MDF
+
+        if not hasattr(self, "neq") or self.neq == 0:
+            self.number_dofs()
+        self.apply_boundary_conditions()
+
+        n_free = len(self.free_dofs)
+        modes_to_calc = min(num_modes, n_free)
+        if modes_to_calc <= 0:
+            self.modal_results = {
+                "omega": np.array([], dtype=float),
+                "frequencies": np.array([], dtype=float),
+                "periods": np.array([], dtype=float),
+                "modes": np.zeros((self.neq, 0), dtype=float),
+                "phi": np.zeros((n_free, 0), dtype=float),
+            }
+            return self.modal_results
+
+        mdf = MDF.from_fem2d(self)
+        omega, phi = mdf.modal.modal_analysis(n_modes=modes_to_calc)
+
+        frequencies = omega / (2.0 * np.pi)
+        periods = np.zeros_like(frequencies)
+        non_zero = frequencies > 1e-10
+        periods[non_zero] = 1.0 / frequencies[non_zero]
+
+        full_modes = np.zeros((self.neq, len(omega)), dtype=float)
+        for m_idx in range(len(omega)):
+            full_modes[self.free_dofs, m_idx] = phi[:, m_idx]
+            max_val = np.max(np.abs(full_modes[:, m_idx]))
+            if max_val > 1e-12:
+                full_modes[:, m_idx] /= max_val
+
+        self.modal_results = {
+            "omega": omega,
+            "frequencies": frequencies,
+            "periods": periods,
+            "modes": full_modes,
+            "phi": phi,
+        }
+        return self.modal_results
+
+    def response_spectrum_analysis(
+        self,
+        spectrum_curve=None,
+        sds=None,
+        sd1=None,
+        tl=8.0,
+        gm=None,
+        gm_component=None,
+        Sa=None,
+        Sd=None,
+        n_modes=None,
+        ji=0.05,
+        direction="x",
+        scale_factor=1.0,
+        combination="CQC",
+    ):
+        """
+        Perform linear dynamic Response Spectrum Analysis (RSA) on the structure.
+
+        Parameters
+        ----------
+        spectrum_curve : callable or tuple or dict, optional
+            Continuous response spectrum curve Sa(T).
+        sds : float, optional
+            ASCE 7 short-period design spectral response acceleration parameter SDS.
+        sd1 : float, optional
+            ASCE 7 1-second design spectral response acceleration parameter SD1.
+        tl : float, optional
+            ASCE 7 long-period transition period (seconds). Defaults to 8.0.
+        gm : GroundMotion or str, optional
+            Ground motion object, built-in event name (e.g. 'elcentro', 'northridge',
+            'loma_prieta', 'san_fernando', 'elcentro_chopra'), or composite string (e.g. 'northridge:hor2').
+        gm_component : str, optional
+            Specific component when gm is a string ('hor1', 'hor2', 'up').
+            If None, automatically inferred from excitation direction:
+            - direction='x' -> 'hor1'
+            - direction='y' -> 'hor2'
+        Sa : array-like, optional
+            Array of modal spectral accelerations.
+        Sd : array-like, optional
+            Array of modal spectral displacements.
+        n_modes : int, optional
+            Number of modes to include. Defaults to all available free DOFs.
+        ji : float or array-like, optional
+            Modal damping ratio(s). Defaults to 0.05 (5%).
+        direction : str, optional
+            Excitation direction ('x' or 'y'). Defaults to 'x'.
+        scale_factor : float, optional
+            Scale factor for spectral values (e.g. 9.80665 or 386.09 if Sa is in g).
+        combination : str, optional
+            Modal combination method: 'CQC', 'SRSS', or 'ABS'. Defaults to 'CQC'.
+
+        Returns
+        -------
+        dict
+            Dictionary containing rsa object, modal and combined displacements,
+            element forces, base shear, and mass participation metrics.
+        """
+        from structdyn.mdf.mdf import MDF
+        from structdyn.mdf.analytical_methods.response_spectrum_analysis import (
+            ResponseSpectrumAnalysis,
+        )
+
+        if not hasattr(self, "neq") or self.neq == 0:
+            self.number_dofs()
+        self.apply_boundary_conditions()
+
+        mdf = MDF.from_fem2d(self, zeta=ji, n_modes=n_modes)
+        rsa = ResponseSpectrumAnalysis(
+            mdf=mdf,
+            ji=ji,
+            n_modes=n_modes,
+            gm=gm,
+            gm_component=gm_component,
+            Sd=Sd,
+            Sa=Sa,
+            spectrum_curve=spectrum_curve,
+            sds=sds,
+            sd1=sd1,
+            tl=tl,
+            direction=direction,
+            scale_factor=scale_factor,
+        )
+
+        modal_u = rsa.modal_displacements()
+        combined_u = rsa.combine_modal_responses(modal_u, method=combination)
+
+        d_comb = np.zeros(self.neq, dtype=float)
+        d_comb[self.free_dofs] = combined_u
+        self.disp = d_comb
+
+        elem_forces = rsa.compute_modal_element_forces(method=combination)
+        modal_vb = rsa.modal_base_shear()
+        combined_vb = rsa.combine_modal_responses(modal_vb, method=combination)
+
+        self.set_modal_results(rsa.omega, rsa.phi)
+
+        self.rsa_results = {
+            "rsa": rsa,
+            "omega": rsa.omega,
+            "periods": rsa.T,
+            "phi": rsa.phi,
+            "participation_factors": rsa.lambda_,
+            "effective_mass": rsa.effective_mass,
+            "mass_participation_ratio": rsa.mass_participation_ratio,
+            "modal_displacements": modal_u,
+            "combined_displacements": combined_u,
+            "modal_element_forces": elem_forces["modal"],
+            "combined_element_forces": elem_forces["combined"],
+            "modal_base_shear": modal_vb,
+            "combined_base_shear": combined_vb,
+            "combination_method": combination,
+        }
+        return self.rsa_results

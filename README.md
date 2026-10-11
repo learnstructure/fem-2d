@@ -314,6 +314,12 @@ elc = elcentro_chopra()
 gm = GroundMotion.from_arrays(elc["acc (g)"], dt=0.02, scale_factor=386.09)
 response = mdf.find_response_ground_motion(gm, direction="x", method="newmark_beta")
 print("Peak Roof Displacement (in):", response["u5"].abs().max())
+
+# 3. Direct Response Spectrum Analysis (ASCE 7 CQC)
+rsa_res = frame.response_spectrum_analysis(
+    sds=1.0, sd1=0.6, tl=8.0, direction="x", scale_factor=386.09, combination="CQC"
+)
+print("Combined Base Shear (kips):", rsa_res["combined_base_shear"][0])
 ```
 
 ### 7. Ecosystem Integration with `struct_core`

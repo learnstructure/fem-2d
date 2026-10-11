@@ -66,7 +66,7 @@ def build_hw4_structure():
             right_node,
             material,
             beam_section,
-            extra_mass=0.0,
+            mass=0.0,
         )
         structure.add_element(beam)
 
@@ -152,4 +152,52 @@ def test_draw_mode_shape():
 
     ax2 = plot_mode_shape(structure, mode=2, phi=phi, period=T[1], show=False)
     assert ax2 is not None
+
+
+def test_hw4_response_spectrum_analysis():
+    """Validate RSA method on 2D structure with ASCE 7 spectrum."""
+    structure, _, _ = build_hw4_structure()
+    res = structure.response_spectrum_analysis(
+        sds=1.0,
+        sd1=0.6,
+        tl=8.0,
+        direction="x",
+        scale_factor=386.09,
+        combination="CQC",
+    )
+
+    assert "combined_base_shear" in res
+    assert res["combined_base_shear"][0] > 0.0
+    # Mode 1 period around 0.74s
+    assert math.isclose(res["periods"][0], 0.740, rel_tol=0.01)
+    # Check effective mass participation
+    assert np.sum(res["mass_participation_ratio"]) > 0.95
+    # Combined element forces present
+    assert len(res["combined_element_forces"]) == len(structure.elements)
+
+
+def test_hw4_response_spectrum_analysis_ground_motion():
+    """Validate RSA method on 2D structure with ground motion records."""
+    from structdyn import GroundMotion
+
+    structure, _, _ = build_hw4_structure()
+
+    # 1. Using GroundMotion instance
+    gm_obj = GroundMotion.from_event("northridge", scale_factor=386.09)
+    res_obj = structure.response_spectrum_analysis(
+        gm=gm_obj,
+        direction="x",
+        scale_factor=386.09,
+    )
+    assert res_obj["combined_base_shear"][0] > 0.0
+
+    # 2. Using string event name directly ("elcentro")
+    res_str = structure.response_spectrum_analysis(
+        gm="elcentro",
+        direction="x",
+        scale_factor=386.09,
+    )
+    assert res_str["combined_base_shear"][0] > 0.0
+
+
 

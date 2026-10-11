@@ -65,9 +65,11 @@ from fem2d.structure import Structure
 
 try:
     from struct_load.engine.self_weight import calculate_self_weight as _calc_self_weight
+    from struct_load.engine.mass_source import calculate_mass_source as _calc_mass_source
     _STRUCT_LOAD_AVAILABLE = True
 except ImportError:
     _calc_self_weight = None
+    _calc_mass_source = None
     _STRUCT_LOAD_AVAILABLE = False
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
@@ -87,6 +89,7 @@ def model_from_core(
     load_case_id: Optional[Union[int, str]] = None,
     validate: bool = True,
     load_combination_id: Optional[str] = None,
+    mass_source: Optional[Union[Any, str]] = None,
     include_self_weight: bool = True,
     unit_system: Optional[str] = None,
     gravity_accel: Optional[float] = None,
@@ -108,6 +111,9 @@ def model_from_core(
         Defaults to ``True``.
     load_combination_id : str, optional
         The specific load combination ID to apply.
+    mass_source : MassSource, dict, or str, optional
+        Inertial mass source configuration. If provided, evaluates masses from dead/live load
+        patterns and element self-masses and assigns them to nodes and frame elements.
     include_self_weight : bool, optional
         Whether to automatically compute and include element self-weight for any
         load case where `include_self_weight=True`. Defaults to True.
@@ -270,6 +276,35 @@ def model_from_core(
 
     if gravity_accel is None:
         gravity_accel = 386.08858 if str(unit_system).lower() == "us" else 9.80665
+
+    # 5b. Evaluate Mass Source if specified
+    ms_target = mass_source if mass_source is not None else getattr(model, "mass_source", None)
+    if ms_target is not None:
+        if _calc_mass_source is not None:
+            ms_res = _calc_mass_source(
+                model=model,
+                mass_source=ms_target,
+                gravity_accel=gravity_accel,
+                unit_system=unit_system,
+            )
+            for nid, m_vec in ms_res.nodal_masses.items():
+                if nid in structure.nodes:
+                    m_val = m_vec[0] if isinstance(m_vec, (list, tuple)) else float(m_vec)
+                    structure.nodes[nid].set_mass(mass=m_val)
+
+            for eid, m_extra in ms_res.element_masses.items():
+                if eid in structure.elements:
+                    structure.elements[eid].mass += float(m_extra)
+
+            structure.mass_source_result = ms_res
+        else:
+            import warnings
+            warnings.warn(
+                "A mass_source was specified, but 'struct_load' is not installed to evaluate it. "
+                "Install struct_load to enable automated mass source calculation.",
+                UserWarning,
+                stacklevel=2,
+            )
 
     sw_cache = {}
 

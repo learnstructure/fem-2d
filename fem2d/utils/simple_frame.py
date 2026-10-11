@@ -258,3 +258,12 @@ class SimpleFrame:
         """
         self.structure.solve()
         return self.structure.disp, self.structure.reactions
+
+    def modal_analysis(self, num_modes: int = 6):
+        """Perform undamped modal analysis on the structure."""
+        return self.structure.modal_analysis(num_modes=num_modes)
+
+    def response_spectrum_analysis(self, **kwargs):
+        """Perform Response Spectrum Analysis on the 2D frame."""
+        return self.structure.response_spectrum_analysis(**kwargs)
+

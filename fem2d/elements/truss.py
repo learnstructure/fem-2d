@@ -16,7 +16,7 @@ class TrussElement(ElementBase):
         Material definition for the element.
     area : float or None
         Cross-sectional area.
-    extra_mass : float
+    mass : float
         Additional distributed mass per unit length.
     """
 
@@ -27,7 +27,7 @@ class TrussElement(ElementBase):
         node_j,
         material,
         section,
-        extra_mass=0.0,
+        mass=0.0,
         geometric_nonlinear=False,
     ):
         """
@@ -45,13 +45,14 @@ class TrussElement(ElementBase):
             Material definition.
         section : Section
             Section definition (containing area A).
-        extra_mass : float, optional
+        mass : float, optional
             Additional distributed mass per unit length. Defaults to 0.0.
         geometric_nonlinear : bool, optional
             Whether to use corotational geometric non-linear formulation. Defaults to False.
         """
         super().__init__(eid, node_i, node_j)
 
+        effective_mass = mass
         if hasattr(section, "A"):
             self.section = section
             self.area = section.A
@@ -61,7 +62,7 @@ class TrussElement(ElementBase):
             self.area = material.A
             self.material = getattr(material, "material", None)
             if isinstance(section, (int, float)):
-                extra_mass = float(section)
+                effective_mass = float(section)
         elif isinstance(section, (int, float)):
             from fem2d.sections.section import Section
             area_val = float(section)
@@ -73,7 +74,7 @@ class TrussElement(ElementBase):
             self.section = section
             self.area = getattr(section, "A", None)
 
-        self.extra_mass = extra_mass
+        self.mass = float(effective_mass)
         self.geometric_nonlinear = geometric_nonlinear
 
         # Initial length and state variables
@@ -328,7 +329,7 @@ class TrussElement(ElementBase):
         L = self.length
         A = self.area
         rho = self.material.rho
-        extra = self.extra_mass
+        extra = self.mass
 
         total_mass = (rho * A + extra) * L
         # Lumped at nodes: half at each node, translational only
