@@ -2,6 +2,7 @@
 Structure module defining the main model container and global assembly/solver processes.
 """
 
+from typing import Any, Optional, Union
 import numpy as np
 
 from fem2d.elements.beam import BeamElement
@@ -43,8 +44,9 @@ class Structure:
         List of free degrees of freedom indices.
     """
 
-    def __init__(self):
+    def __init__(self, units: Optional[Union[Any, str]] = None):
         """Initialize an empty Structure."""
+        self.units = units
         self.nodes = {}  # id -> Node
         self.elements = {}  # id -> ElementBase
         self.loads = []  # list of load objects
@@ -88,7 +90,6 @@ class Structure:
             The load object to add.
         """
         self.loads.append(load)
-
     def set_modal_results(self, omega, phi):
         """
         Register modal analysis results on the structure for later use by plotting utilities.
@@ -561,3 +562,30 @@ class Structure:
             "combination_method": combination,
         }
         return self.rsa_results
+
+    def apply_self_weight(
+        self,
+        direction: str = "-y",
+        gravity_accel: Optional[float] = None,
+        units: Optional[Any] = None,
+    ) -> "Structure":
+        """
+        Compute and apply element self-weight distributed loads directly to the structure.
+
+        Parameters
+        ----------
+        direction : str, optional
+            Gravity direction in global coordinates ('-y' or '-x'). Defaults to '-y'.
+        gravity_accel : float, optional
+            Acceleration due to gravity. If None, derived from structure.units.
+        units : str or Units, optional
+            Units for calculation. If None, uses structure.units.
+
+        Returns
+        -------
+        Structure
+            self (for chaining).
+        """
+        from struct_load import apply_self_weight as _apply_sw
+        return _apply_sw(self, direction=direction, gravity_accel=gravity_accel, units=units)
+

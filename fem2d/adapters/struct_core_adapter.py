@@ -50,6 +50,8 @@ from struct_core import (
     Project,
     RectangularSection as _ScRectangularSection,
     StructuralModel,
+    Units,
+    parse_units,
     validate_structural_model,
 )
 
@@ -86,12 +88,12 @@ __all__ = ["model_from_core", "model_to_core", "result_to_core", "solve_combinat
 
 def model_from_core(
     model_or_project: Union[StructuralModel, Project],
-    load_case_id: Optional[Union[int, str]] = None,
+    load_case_id: Optional[Union[int, str, List[Union[int, str]], Tuple[Union[int, str], ...]]] = None,
     validate: bool = True,
     load_combination_id: Optional[str] = None,
     mass_source: Optional[Union[Any, str]] = None,
     include_self_weight: bool = True,
-    unit_system: Optional[str] = None,
+    units: Optional[Union[str, Units, dict]] = None,
     gravity_accel: Optional[float] = None,
     include_shear_deformation: Optional[bool] = None,
 ) -> Structure:
@@ -103,9 +105,9 @@ def model_from_core(
     ----------
     model_or_project : StructuralModel or Project
         The input schema instance.
-    load_case_id : int or str, optional
-        The specific load case ID to apply. If ``None`` and load cases exist,
-        the first load case is applied by default.
+    load_case_id : int, str, or list of (int or str), optional
+        Target load case ID or list of IDs. If None (default), all load cases
+        are transferred and summed. Pass 'ALL' for all cases, or specific IDs like 'DEAD'.
     validate : bool, optional
         Whether to run structural validation rules before building.
         Defaults to ``True``.
@@ -118,10 +120,11 @@ def model_from_core(
         Whether to automatically compute and include element self-weight for any
         load case where `include_self_weight=True`. Defaults to True.
         Uses `struct_load.engine.self_weight.calculate_self_weight`.
-    unit_system : str, optional
-        'si' or 'us'. If model_or_project is a Project, inferred from `project.metadata.units`.
+    units : str, Units, or dict, optional
+        Units specification (e.g. 'kN, m' or 'kip, in'). If None, inferred automatically
+        from model_or_project.units or model_or_project.metadata.units. Defaults to 'kN, m'.
     gravity_accel : float, optional
-        Gravity acceleration (defaults to 9.80665 for SI, 386.08858 for US).
+        Gravity acceleration. Defaults to `active_units.gravity_acceleration`.
     include_shear_deformation : bool, optional
         Whether to consider shear deformation (Timoshenko beam theory) in beam elements.
         If None (default), reads `include_shear_deformation` from each `struct_core.BeamElement`.
@@ -140,21 +143,53 @@ def model_from_core(
     if validate:
         validate_structural_model(model, raise_error=True)
 
-    structure = Structure()
+    active_units = parse_units(
+        units
+        or getattr(model_or_project, "units", None)
+        or getattr(getattr(model_or_project, "metadata", None), "units", None)
+        or "kN, m"
+    )
+
+    structure = Structure(units=active_units)
+
+    if gravity_accel is None:
+        gravity_accel = active_units.gravity_acceleration
+
+    mass_factor = active_units.consistent_mass_factor
+
+    def _convert_rho(mat_schema: Any) -> float:
+        # Dynamic mass density in consistent units: [F] * [T]^2 / [L]^4
+        uw = getattr(mat_schema, "unit_weight", None)
+        if uw is not None and float(uw) > 0.0:
+            return float(uw) / gravity_accel
+        raw_rho = getattr(mat_schema, "rho", 0.0)
+        val = float(raw_rho or 0.0)
+        if val <= 0.0:
+            return 0.0
+        return val * mass_factor
+
+    def _convert_mass(raw_m: float) -> float:
+        val = float(raw_m or 0.0)
+        if val <= 0.0:
+            return 0.0
+        return val * mass_factor
 
     # 1. Convert Materials
     materials_map = {}
     for mat_schema in model.materials:
+        rho_val = _convert_rho(mat_schema)
+        uw_val = getattr(mat_schema, "unit_weight", None)
         if isinstance(mat_schema, _ScElasticMaterial):
-            mat_obj = _FemElasticMaterial(E=mat_schema.E, rho=mat_schema.rho)
+            mat_obj = _FemElasticMaterial(E=mat_schema.E, rho=rho_val, unit_weight=uw_val)
         elif isinstance(mat_schema, _ScBilinearMaterial):
             mat_obj = _FemBilinearMaterial(
-                E=mat_schema.E, Et=mat_schema.Et, fy=mat_schema.fy, rho=mat_schema.rho
+                E=mat_schema.E, Et=mat_schema.Et, fy=mat_schema.fy, rho=rho_val
             )
         else:
             mat_obj = _FemElasticMaterial(
                 E=getattr(mat_schema, "E", 200e9),
-                rho=getattr(mat_schema, "rho", 0.0),
+                rho=rho_val,
+                unit_weight=uw_val,
             )
         materials_map[mat_schema.id] = mat_obj
 
@@ -180,7 +215,10 @@ def model_from_core(
     for n_schema in model.nodes:
         node_obj = _FemNode(nid=n_schema.id, x=n_schema.x, y=n_schema.y)
         if n_schema.mass > 0.0 or n_schema.inertia > 0.0:
-            node_obj.set_mass(mass=n_schema.mass, inertia=n_schema.inertia)
+            node_obj.set_mass(
+                mass=_convert_mass(n_schema.mass),
+                inertia=_convert_mass(n_schema.inertia),
+            )
         structure.add_node(node_obj)
 
     # 4. Apply Supports
@@ -247,35 +285,7 @@ def model_from_core(
 
         structure.add_element(elem_obj)
 
-    # 6. Apply Loads
-    # Determine unit system and gravity acceleration for self-weight
-    if unit_system is None:
-        if isinstance(model_or_project, Project) and getattr(model_or_project, "metadata", None) and getattr(model_or_project.metadata, "units", None):
-            units = model_or_project.metadata.units
-            if getattr(units, "is_us_customary", False):
-                unit_system = "us"
-            elif getattr(units, "is_metric", False):
-                unit_system = "si"
-            else:
-                length_u = str(getattr(units, "length", "m")).lower()
-                force_u = str(getattr(units, "force", "kn")).lower()
-                if length_u in ("in", "ft", "inch", "feet") or force_u in ("kip", "kips", "lb", "lbf", "psi", "ksi"):
-                    unit_system = "us"
-                else:
-                    unit_system = "si"
-            if gravity_accel is None:
-                gravity_accel = getattr(units, "gravity_acceleration", None)
-        else:
-            unit_system = "si"
-            if hasattr(model, "materials"):
-                for m in model.materials:
-                    uw = getattr(m, "unit_weight", None)
-                    if uw is not None and 0 < uw < 1.0:
-                        unit_system = "us"
-                        break
-
-    if gravity_accel is None:
-        gravity_accel = 386.08858 if str(unit_system).lower() == "us" else 9.80665
+    # 6. Apply Loads (units and gravity_accel already resolved)
 
     # 5b. Evaluate Mass Source if specified
     ms_target = mass_source if mass_source is not None else getattr(model, "mass_source", None)
@@ -285,7 +295,7 @@ def model_from_core(
                 model=model,
                 mass_source=ms_target,
                 gravity_accel=gravity_accel,
-                unit_system=unit_system,
+                units=active_units,
             )
             for nid, m_vec in ms_res.nodal_masses.items():
                 if nid in structure.nodes:
@@ -326,7 +336,7 @@ def model_from_core(
                 model=model,
                 load_case_id=case_id,
                 gravity_accel=gravity_accel,
-                unit_system=unit_system,
+                units=active_units,
                 direction="-y",
             )
         sw_case = sw_cache[case_id]
@@ -364,7 +374,9 @@ def model_from_core(
         for factor_obj in target_comb.factors:
             lc = load_cases_map.get(factor_obj.load_case_id)
             if not lc:
-                continue
+                raise KeyError(
+                    f"Load combination '{combination_id}' references unknown load case '{factor_obj.load_case_id}'."
+                )
             factor = factor_obj.factor
             for pl_schema in lc.point_loads:
                 if pl_schema.node_id in structure.nodes:
@@ -392,21 +404,31 @@ def model_from_core(
     else:
         cases_to_apply = []
         if model.load_cases:
-            if load_case_id is not None and str(load_case_id).upper() not in ("ALL", "TOTAL", "ENVELOPE"):
-                cases_to_apply = [lc for lc in model.load_cases if str(lc.id).upper() == str(load_case_id).upper()]
-                if not cases_to_apply:
-                    cases_to_apply = [lc for lc in model.load_cases if str(getattr(lc, "name", "")).upper() == str(load_case_id).upper()]
-                if not cases_to_apply:
-                    active_cases = [
-                        lc for lc in model.load_cases
-                        if lc.point_loads
-                        or getattr(lc, "element_loads", [])
-                        or getattr(lc, "distributed_loads", [])
-                        or (include_self_weight and getattr(lc, "include_self_weight", False))
-                    ]
-                    cases_to_apply = active_cases if active_cases else [model.load_cases[0]]
-            else:
+            if load_case_id is None:
                 cases_to_apply = model.load_cases
+            elif isinstance(load_case_id, (list, tuple, set)):
+                targets = {str(cid).upper() for cid in load_case_id}
+                cases_to_apply = [
+                    lc for lc in model.load_cases
+                    if str(lc.id).upper() in targets or str(getattr(lc, "name", "")).upper() in targets
+                ]
+                if not cases_to_apply:
+                    raise ValueError(
+                        f"None of the requested load cases {load_case_id} found in model. Available: {[lc.id for lc in model.load_cases]}"
+                    )
+            else:
+                cid_str = str(load_case_id).upper()
+                if cid_str in ("ALL", "TOTAL", "ENVELOPE"):
+                    cases_to_apply = model.load_cases
+                else:
+                    cases_to_apply = [
+                        lc for lc in model.load_cases
+                        if str(lc.id).upper() == cid_str or str(getattr(lc, "name", "")).upper() == cid_str
+                    ]
+                    if not cases_to_apply:
+                        raise ValueError(
+                            f"Requested load case '{load_case_id}' not found in model load cases: {[lc.id for lc in model.load_cases]}"
+                        )
 
         for target_load_case in cases_to_apply:
             for pl_schema in target_load_case.point_loads:
@@ -466,31 +488,26 @@ def _make_sc_distributed_load(*, element_id, wx: float, wy: float):
     return ScDistributedLoad(element_id=element_id, wx=wx, wy=wy, is_local=False)
 
 
-def model_to_core(obj, *, validate: bool = True) -> StructuralModel:
+def model_to_core(
+    obj,
+    *,
+    units: Optional[Union[str, Any, dict]] = None,
+    default_load_case_id: str = "LIVE",
+    validate: bool = True,
+) -> StructuralModel:
     """
     Convert a ``fem2d.Structure`` (or ``SimpleFrame`` / ``Results`` wrapper)
     into a ``struct_core.StructuralModel``.
-
-    Mapping
-    -------
-    - ``fem2d.Node`` → ``struct_core.Node`` (z=0 in the 2D world; mass and
-      inertia preserved when set).
-    - ``fem2d.ElasticMaterial`` → ``ElasticMaterial``;
-      ``fem2d.BilinearMaterial`` → ``BilinearMaterial``. Other material
-      classes are coerced to ``ElasticMaterial``.
-    - ``fem2d.Section`` → ``struct_core.GeneralSection(A=A, Iz=I)`` so the
-      area and second moment of area round-trip exactly.
-    - ``BeamElement`` / ``BeamWithHingesElement`` / ``*NL`` → ``BeamElement``.
-    - ``TrussElement`` / ``TrussElementNL`` → ``TrussElement``.
-    - ``SpringElement`` → ``SpringElement``.
-    - Node-level loads are gathered into one ``LoadCase`` named ``"LC1"``
-      and a ``LinearStaticAnalysis`` named ``"Static"`` is added.
 
     Parameters
     ----------
     obj : fem2d.Structure, fem2d.SimpleFrame, or fem2d.Results
         Source fem2d model. ``SimpleFrame`` and ``Results`` are unwrapped
         automatically.
+    units : str, Units, or dict, optional
+        Units specification (e.g. 'kN, m'). If None, inferred from structure.units.
+    default_load_case_id : str, optional
+        Target load case ID to store existing structure loads into. Defaults to 'LIVE'.
     validate : bool, optional
         Run ``struct_core.validate_structural_model`` on the produced model.
         Defaults to ``True``.
@@ -499,15 +516,6 @@ def model_to_core(obj, *, validate: bool = True) -> StructuralModel:
     -------
     struct_core.StructuralModel
         A validated Pydantic model representing the fem2d input.
-
-    Raises
-    ------
-    ImportError
-        If ``struct_core`` is not installed. Install with
-        ``pip install fem2d[ecosystem]``.
-    TypeError
-        If ``obj`` is not a fem2d ``Structure``, ``SimpleFrame``, or
-        ``Results``.
     """
     try:
         from struct_core import (
@@ -522,6 +530,8 @@ def model_to_core(obj, *, validate: bool = True) -> StructuralModel:
             SpringElement as ScSpringElement,
             Support as ScSupport,
             TrussElement as ScTrussElement,
+            Units,
+            parse_units,
         )
     except ImportError as exc:  # pragma: no cover - import guard
         raise ImportError(
@@ -532,11 +542,6 @@ def model_to_core(obj, *, validate: bool = True) -> StructuralModel:
     structure = _resolve_structure(obj)
 
     # ---- Materials (deduplicated by properties, not by Python object id) ---
-    # Two different fem2d.ElasticMaterial instances with identical E/rho
-    # collapse to a single struct_core material. This makes the M1/M2/...
-    # assignment stable across repeated exports and means the schema
-    # doesn't bloat when SimpleFrame.add_frame/E callers re-construct
-    # the same material on every call.
     def _material_key(fem_mat) -> tuple:
         """Hashable key for material deduplication."""
         if isinstance(fem_mat, _FemBilinearMaterial):
@@ -546,12 +551,14 @@ def model_to_core(obj, *, validate: bool = True) -> StructuralModel:
                 round(float(getattr(fem_mat, "Et", fem_mat.E * 0.01)), 12),
                 round(float(getattr(fem_mat, "fy", float("nan"))), 12),
                 round(float(getattr(fem_mat, "rho", 0.0)), 12),
+                getattr(fem_mat, "unit_weight", None),
             )
         # Default: treat as elastic.
         return (
             "elastic",
             round(float(fem_mat.E), 12),
             round(float(getattr(fem_mat, "rho", 0.0)), 12),
+            getattr(fem_mat, "unit_weight", None),
         )
 
     def _section_key(fem_sec) -> tuple:
@@ -580,6 +587,7 @@ def model_to_core(obj, *, validate: bool = True) -> StructuralModel:
                     Et=float(getattr(fem_mat, "Et", fem_mat.E * 0.01)),
                     fy=float(getattr(fem_mat, "fy", float("nan"))),
                     rho=float(getattr(fem_mat, "rho", 0.0)),
+                    unit_weight=getattr(fem_mat, "unit_weight", None),
                 )
             )
         else:
@@ -588,6 +596,7 @@ def model_to_core(obj, *, validate: bool = True) -> StructuralModel:
                     id=sc_id,
                     E=float(fem_mat.E),
                     rho=float(getattr(fem_mat, "rho", 0.0)),
+                    unit_weight=getattr(fem_mat, "unit_weight", None),
                 )
             )
         materials_map[key] = sc_id
@@ -734,14 +743,14 @@ def model_to_core(obj, *, validate: bool = True) -> StructuralModel:
     if sc_point_loads or sc_element_loads:
         sc_load_cases.append(
             ScLoadCase(
-                id="LC1",
-                name="LC1",
+                id=default_load_case_id,
+                name="Live Load" if default_load_case_id == "LIVE" else default_load_case_id,
                 point_loads=sc_point_loads,
                 element_loads=sc_element_loads,
             )
         )
         sc_analysis_cases.append(
-            LinearStaticAnalysis(id="Static", load_case_id="LC1")
+            LinearStaticAnalysis(id="Static", load_case_id=default_load_case_id)
         )
 
     model = StructuralModel(
@@ -753,6 +762,10 @@ def model_to_core(obj, *, validate: bool = True) -> StructuralModel:
         load_cases=sc_load_cases,
         analysis_cases=sc_analysis_cases,
     )
+
+    units_spec = units or getattr(structure, "units", None)
+    if units_spec is not None:
+        model.units = parse_units(units_spec) if isinstance(units_spec, (str, dict)) else units_spec
 
     if validate:
         validate_structural_model(model, raise_error=True)

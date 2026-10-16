@@ -17,7 +17,7 @@ class ElasticMaterial(UniaxialMaterial):
         Mass density (mass per unit volume) of the material. Defaults to 0.0.
     """
 
-    def __init__(self, E, rho=0.0, nu=0.3, G=None):
+    def __init__(self, E, rho=0.0, nu=0.3, G=None, unit_weight=None):
         """
         Initialize an ElasticMaterial object.
 
@@ -31,10 +31,13 @@ class ElasticMaterial(UniaxialMaterial):
             Poisson's ratio. Defaults to 0.3.
         G : float, optional
             Shear modulus. If None, derived as G = E / (2 * (1 + nu)).
+        unit_weight : float, optional
+            Weight density (weight per unit volume, e.g. kN/m3, kip/in3, pcf).
         """
         self.E = float(E)
-        self.rho = float(rho)
+        self.rho = float(rho) if rho is not None else 0.0
         self.nu = float(nu)
+        self.unit_weight = float(unit_weight) if unit_weight is not None else None
         if G is not None:
             self.G = float(G)
         else:

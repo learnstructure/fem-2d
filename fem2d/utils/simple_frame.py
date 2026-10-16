@@ -2,6 +2,8 @@
 SimpleFrame module providing a high-level API for creating and solving 2D structural frames.
 """
 
+from typing import Any, Optional, Union
+
 from fem2d.elements.truss import TrussElement
 from fem2d.nodes import Node
 from fem2d.materials import ElasticMaterial
@@ -22,13 +24,52 @@ class SimpleFrame:
     ----------
     structure : Structure
         The underlying Structure object that holds the nodes, elements, and loads.
+    units : Units or str, optional
+        Canonical unit specification attached to the structure.
     """
 
-    def __init__(self):
+    def __init__(self, units: Optional[Union[Any, str]] = None):
         """Initialize a SimpleFrame wrapper with an empty Structure."""
-        self.structure = Structure()
+        self.structure = Structure(units=units)
         self._node_counter = 0
         self._elem_counter = 0
+
+    @property
+    def units(self):
+        """Active engineering units on the underlying Structure."""
+        return self.structure.units
+
+    @units.setter
+    def units(self, value):
+        self.structure.units = value
+
+    def apply_self_weight(
+        self,
+        direction: str = "-y",
+        gravity_accel: Optional[float] = None,
+        units: Optional[Any] = None,
+    ):
+        """
+        Materialize element self-weight distributed loads directly onto the structure.
+
+        Parameters
+        ----------
+        direction : str, optional
+            Gravity direction in global coordinates ('-y' or '-x'). Defaults to '-y'.
+        gravity_accel : float, optional
+            Acceleration due to gravity. If None, derived from units.
+        units : str or Units, optional
+            Units for calculation. If None, uses structure.units.
+
+        Returns
+        -------
+        SimpleFrame
+            self (for chaining).
+        """
+        self.structure.apply_self_weight(
+            direction=direction, gravity_accel=gravity_accel, units=units
+        )
+        return self
 
     def add_node(self, id, x, y):
         """
@@ -69,6 +110,8 @@ class SimpleFrame:
         fs=None,
         G=None,
         nu=0.3,
+        rho=None,
+        unit_weight=None,
     ):
         """
         Add an elastic beam/frame element to the structure.
@@ -81,10 +124,10 @@ class SimpleFrame:
             ID of the start node.
         node_j_id : int or str
             ID of the end node.
-        E : float
-            Young's Modulus of the member material.
-        A : float
-            Cross-sectional area.
+        E : float or ElasticMaterial
+            Young's Modulus of the member material or an ElasticMaterial instance.
+        A : float or Section
+            Cross-sectional area or Section instance.
         I : float
             Moment of inertia of the member cross-section.
         hinge_i : bool, optional
@@ -105,6 +148,10 @@ class SimpleFrame:
             Shear modulus. Defaults to None (computed from E and nu).
         nu : float, optional
             Poisson's ratio. Defaults to 0.3.
+        rho : float, optional
+            Mass density. Defaults to None.
+        unit_weight : float, optional
+            Weight density. Defaults to None.
 
         Returns
         -------
@@ -113,8 +160,16 @@ class SimpleFrame:
         """
         node_i = self.structure.nodes[node_i_id]
         node_j = self.structure.nodes[node_j_id]
-        material = ElasticMaterial(E, nu=nu, G=G)
-        section = Section(A, I, As=As, fs=fs)
+        if isinstance(E, ElasticMaterial):
+            material = E
+        else:
+            material = ElasticMaterial(E, nu=nu, G=G, rho=rho, unit_weight=unit_weight)
+
+        if isinstance(A, Section):
+            section = A
+        else:
+            section = Section(A, I, As=As, fs=fs)
+
         elem = BeamElement(
             id,
             node_i,
@@ -130,7 +185,18 @@ class SimpleFrame:
         self.structure.add_element(elem)
         return elem
 
-    def add_truss(self, id, node_i_id, node_j_id, E, A, I=0.0):
+    def add_truss(
+        self,
+        id,
+        node_i_id,
+        node_j_id,
+        E,
+        A,
+        I=0.0,
+        nu=0.3,
+        rho=None,
+        unit_weight=None,
+    ):
         """
         Add an elastic truss element to the structure.
 
@@ -142,22 +208,37 @@ class SimpleFrame:
             ID of the start node.
         node_j_id : int or str
             ID of the end node.
-        E : float
-            Young's Modulus of the truss material.
-        A : float
-            Cross-sectional area.
+        E : float or ElasticMaterial
+            Young's Modulus of the truss material or ElasticMaterial.
+        A : float or Section
+            Cross-sectional area or Section instance.
         I : float, optional
             Moment of inertia. Defaults to ``0.0`` for an ideal pin-ended
             truss. Pass a small positive value (e.g. ``1e-12``) when the
             downstream consumer (e.g. ``struct_core.GeneralSection``)
             requires ``Iz > 0``.
+        nu : float, optional
+            Poisson's ratio. Defaults to 0.3.
+        rho : float, optional
+            Mass density. Defaults to None.
+        unit_weight : float, optional
+            Weight density. Defaults to None.
         """
         node_i = self.structure.nodes[node_i_id]
         node_j = self.structure.nodes[node_j_id]
-        material = ElasticMaterial(E)
-        section = Section(A, I)
+        if isinstance(E, ElasticMaterial):
+            material = E
+        else:
+            material = ElasticMaterial(E, nu=nu, rho=rho, unit_weight=unit_weight)
+
+        if isinstance(A, Section):
+            section = A
+        else:
+            section = Section(A, I)
+
         elem = TrussElement(id, node_i, node_j, material, section)
         self.structure.add_element(elem)
+        return elem
 
     def add_spring(self, id, node_i_id, node_j_id, stiffness):
         """

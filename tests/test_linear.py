@@ -498,4 +498,27 @@ def test_beam_element_both_hinges_stiffness():
     assert abs(k[3, 3] - expected_EA_L) < 1e-9
 
 
+def test_simple_frame_units_and_self_weight():
+    """Verify SimpleFrame accepts units and can materialize self-weight."""
+    frame = SimpleFrame(units="kN, m")
+    assert frame.units == "kN, m"
+    assert frame.structure.units == "kN, m"
+
+    frame.add_node(1, 0.0, 0.0)
+    frame.add_node(2, 6.0, 0.0)
+    frame.add_frame(1, 1, 2, E=30e6, A=0.15, I=0.003125, unit_weight=24.0)
+    frame.add_support(1, [1, 1, 1])
+    frame.add_support(2, [1, 1, 1])
+
+    frame.apply_self_weight(direction="-y")
+    assert len(frame.structure.loads) == 1
+    load = frame.structure.loads[0]
+    assert isinstance(load, DistributedLoad)
+    assert pytest.approx(load.wy) == -3.6
+
+    frame.solve()
+    assert frame.structure.disp is not None
+    assert frame.structure.reactions is not None
+
+
 

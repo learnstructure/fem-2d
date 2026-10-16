@@ -56,6 +56,7 @@ class Node:
         Can be called either with keyword/positional boolean flags::
 
             node.set_support(ux_fixed=True, uy_fixed=True, rz_fixed=True)
+            node.set_support([1, 1, 1])
 
         or more compactly with three positional ``0``/``1`` (or
         ``True``/``False``) flags ordered as ``(ux, uy, rz)``::
@@ -65,14 +66,17 @@ class Node:
 
         Parameters
         ----------
-        ux_fixed : bool or int, optional
-            Whether translation along the x-axis is fixed. Defaults to False.
+        ux_fixed : bool, int, or list/tuple, optional
+            Whether translation along the x-axis is fixed, or a 3-element list [ux, uy, rz].
         uy_fixed : bool or int, optional
             Whether translation along the y-axis is fixed. Defaults to False.
         rz_fixed : bool or int, optional
             Whether rotation about the z-axis is fixed. Defaults to False.
         """
-        self.support = [bool(ux_fixed), bool(uy_fixed), bool(rz_fixed)]
+        if isinstance(ux_fixed, (list, tuple)) and len(ux_fixed) >= 3:
+            self.support = [bool(ux_fixed[0]), bool(ux_fixed[1]), bool(ux_fixed[2])]
+        else:
+            self.support = [bool(ux_fixed), bool(uy_fixed), bool(rz_fixed)]
 
     def set_load(self, fx=0.0, fy=0.0, mz=0.0):
         """

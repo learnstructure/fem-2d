@@ -115,8 +115,8 @@ The `SimpleFrame` class provides a simplified API for building and solving struc
 from fem2d import SimpleFrame
 from fem2d.results import Results
 
-# Initialize simple frame
-frame = SimpleFrame()
+# Initialize simple frame with engineering units
+frame = SimpleFrame(units="kip, in")
 
 # Define nodes (id, x, y)
 frame.add_node(1, 0.0, 0.0)
@@ -152,7 +152,7 @@ print("Reactions:\n", results.reactions())
 print("Element End Forces:\n", results.element_forces())
 ```
 
-### 2. Geometrically Non-Linear Truss Analysis
+### 2. Geometrically Non-Linear Truss Analysis & Self-Weight
 
 For advanced analyses, use the core `Structure` class. The same
 `TrussElement` is used for both linear and corotational geometrically
@@ -164,8 +164,8 @@ from fem2d import Structure, Node, ElasticMaterial, TrussElement
 from fem2d.results import Results
 from fem2d.sections import Section
 
-# Create structure and nodes
-structure = Structure()
+# Create structure with canonical engineering units
+structure = Structure(units="kN, m")
 node1 = Node(1, 0.0, 0.0)
 node2 = Node(2, 4.0, 3.0)
 node3 = Node(3, 8.0, 0.0)
@@ -174,11 +174,11 @@ structure.add_node(node1)
 structure.add_node(node2)
 structure.add_node(node3)
 
-# Material and section
+# Material and section (G is automatically derived from E and nu; specify unit_weight)
 E = 200e6              # Material modulus (kN/m^2)
 EA = 45155.0           # axial stiffness (kN)
 A = EA / E             # cross-sectional area (m^2)
-material = ElasticMaterial(E)
+material = ElasticMaterial(E=E, nu=0.30, unit_weight=77.0)  # steel: 77 kN/m^3
 section = Section(A)
 
 # Add linear truss elements (corotational path is enabled via solve below)
@@ -192,6 +192,9 @@ node3.set_support(0, 1)  # roller
 
 # External vertical point force at Node 2
 node2.set_load(fx=0.0, fy=-2000.0, mz=0.0)
+
+# Apply element self-weight directly (auto-derives gravity g = 9.80665 m/s^2 from units)
+structure.apply_self_weight(direction="-y")
 
 # Run Newton-Raphson analysis with corotational formulation
 structure.solve(geometric_nonlinear=True, tolerance=1e-8, max_iter=30)
@@ -261,7 +264,7 @@ $$k_4 = \frac{(4 + \beta_s) E I}{L (1 + \beta_s)}, \quad k_2 = \frac{(2 - \beta_
 ```python
 from fem2d import Structure, Node, Section, ElasticMaterial, BeamElement
 
-structure = Structure()
+structure = Structure(units="kip, in")
 node1 = Node(1, 0.0, 0.0)
 node2 = Node(2, 60.0, 0.0)  # Short/deep beam (L = 60 in)
 structure.add_node(node1)
@@ -382,11 +385,13 @@ save_json(result, "static_result.json")
 
 #### 4.2 Build a struct_core model from a fem2d `Structure`
 
+`model_to_core` automatically maps the structure's `units` to the `StructuralModel.units` schema and places applied loads under `default_load_case_id="LIVE"` by default, keeping the `DEAD` case reserved for self-weight materialization:
+
 ```python
 from fem2d import SimpleFrame, model_to_core, result_to_core
 from struct_core import Project, save_json
 
-frame = SimpleFrame()
+frame = SimpleFrame(units="kip, in")
 frame.add_node(1, 0.0, 0.0)
 frame.add_node(2, 100.0, 0.0)
 frame.add_frame(1, 1, 2, 30000.0, 10.0, 200.0)
@@ -394,34 +399,40 @@ frame.add_support(1, [True, True, True])
 frame.add_node_load(2, [0.0, -1000.0, 0.0])
 frame.solve()
 
-# fem2d → struct_core.StructuralModel
-sc_model = model_to_core(frame)
+# fem2d → struct_core.StructuralModel (preserves units and places loads in LIVE case)
+sc_model = model_to_core(frame, default_load_case_id="LIVE")
 
 # Wrap in a Project and serialize
-project = Project()
+project = Project(model=sc_model)
 project.metadata.title = "Cantilever beam"
-project.model = sc_model
 save_json(project, "model.json")
 ```
 
 #### 4.3 Build a `fem2d.Structure` from a `struct_core` model
 
+`model_from_core` instantiates a `fem2d.Structure` with the project's canonical `Units`, maps materials and section geometries, and optionally filters by `load_case_id` (or aggregates all active load cases by default):
+
 ```python
 from fem2d import model_from_core
 
 # `my_project` is a struct_core.Project (or StructuralModel)
-structure = model_from_core(my_project)
+# Loads can be aggregated from all cases, or selected specifically:
+structure = model_from_core(my_project, load_case_id=None)
+
+# Direct self-weight calculation (auto-computes gravity g from units)
+structure.apply_self_weight(direction="-y")
+
 structure.solve()
 ```
 
 #### 4.4 Round-trip a model through `struct_core`
 
-The three functions are designed to be inverse:
+The conversion functions maintain strict numerical and referential equivalence:
 
 ```python
 from fem2d import SimpleFrame, model_from_core, model_to_core, result_to_core
 
-frame = SimpleFrame()
+frame = SimpleFrame(units="kip, in")
 # ... build & solve ...
 
 # fem2d → core → fem2d
