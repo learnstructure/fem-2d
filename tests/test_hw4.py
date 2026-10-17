@@ -156,11 +156,12 @@ def test_draw_mode_shape():
 
 def test_hw4_response_spectrum_analysis():
     """Validate RSA method on 2D structure with ASCE 7 spectrum."""
+    from struct_load import SeismicParameters
+
     structure, _, _ = build_hw4_structure()
+    params = SeismicParameters(sds=1.0, sd1=0.6, tl=8.0, site_class="D", damping_ratio=0.05)
     res = structure.response_spectrum_analysis(
-        sds=1.0,
-        sd1=0.6,
-        tl=8.0,
+        params=params,
         direction="x",
         scale_factor=386.09,
         combination="CQC",

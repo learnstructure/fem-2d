@@ -319,8 +319,9 @@ response = mdf.find_response_ground_motion(gm, direction="x", method="newmark_be
 print("Peak Roof Displacement (in):", response["u5"].abs().max())
 
 # 3. Direct Response Spectrum Analysis (ASCE 7 CQC)
+params = SeismicParameters(sds=1.0, sd1=0.6, tl=8.0, site_class="D", damping_ratio=0.05)
 rsa_res = frame.response_spectrum_analysis(
-    sds=1.0, sd1=0.6, tl=8.0, direction="x", scale_factor=386.09, combination="CQC"
+    params=params, direction="x", scale_factor=386.09, combination="CQC"
 )
 print("Combined Base Shear (kips):", rsa_res["combined_base_shear"][0])
 ```

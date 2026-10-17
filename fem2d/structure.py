@@ -330,15 +330,17 @@ class Structure:
         if self.fixed_dofs:
             self.reactions[self.fixed_dofs] = f_int[self.fixed_dofs]
 
-    def assemble_mass_matrix(self):
+    def assemble_mass_matrix(self, lumped: bool = False, include_rotational_inertia: bool = False):
         """Assemble the global mass matrix from element and nodal mass contributions."""
         if not hasattr(self, "neq"):
             self.number_dofs()
         self.M = np.zeros((self.neq, self.neq))
+        self._mass_lumped = lumped
+        self._mass_rotational = include_rotational_inertia
 
         # Element contributions
         for el in self.elements.values():
-            m_el = el.mass_matrix()
+            m_el = el.mass_matrix(lumped=lumped, include_rotational_inertia=include_rotational_inertia)
             dofs = el.node_i.dofs + el.node_j.dofs
             for i, ii in enumerate(dofs):
                 for j, jj in enumerate(dofs):
@@ -352,7 +354,7 @@ class Structure:
             if node.inertia != 0.0:
                 self.M[node.dofs[2], node.dofs[2]] += node.inertia
 
-    def get_reduced_matrices(self):
+    def get_reduced_matrices(self, lumped: Optional[bool] = None, include_rotational_inertia: bool = False):
         """
         Return (K_ff, M_ff) reduced to free degrees of freedom.
 
@@ -377,13 +379,25 @@ class Structure:
             )
         if self.K is None:
             self.assemble_stiffness()
-        if self.M is None:
-            self.assemble_mass_matrix()
+        if lumped is not None:
+            if (
+                self.M is None
+                or getattr(self, "_mass_lumped", None) != lumped
+                or getattr(self, "_mass_rotational", None) != include_rotational_inertia
+            ):
+                self.assemble_mass_matrix(lumped=lumped, include_rotational_inertia=include_rotational_inertia)
+        elif self.M is None:
+            self.assemble_mass_matrix(lumped=False, include_rotational_inertia=include_rotational_inertia)
         K_ff = self.K[np.ix_(self.free_dofs, self.free_dofs)]
         M_ff = self.M[np.ix_(self.free_dofs, self.free_dofs)]
         return K_ff, M_ff
 
-    def modal_analysis(self, num_modes: int = 6):
+    def modal_analysis(
+        self,
+        num_modes: int = 6,
+        lumped: bool = False,
+        include_rotational_inertia: bool = False,
+    ):
         """
         Perform 2D undamped eigenvalue modal analysis.
 
@@ -395,6 +409,10 @@ class Structure:
         ----------
         num_modes : int, optional
             Number of vibration modes to compute. Defaults to 6.
+        lumped : bool, optional
+            Whether to use lumped mass formulation. Defaults to False.
+        include_rotational_inertia : bool, optional
+            Whether to include frame rotational lumped inertia when lumped=True. Defaults to False.
 
         Returns
         -------
@@ -424,7 +442,11 @@ class Structure:
             }
             return self.modal_results
 
-        mdf = MDF.from_fem2d(self)
+        mdf = MDF.from_fem2d(
+            self,
+            lumped=lumped,
+            include_rotational_inertia=include_rotational_inertia,
+        )
         omega, phi = mdf.modal.modal_analysis(n_modes=modes_to_calc)
 
         frequencies = omega / (2.0 * np.pi)
@@ -450,33 +472,29 @@ class Structure:
 
     def response_spectrum_analysis(
         self,
+        params=None,
         spectrum_curve=None,
-        sds=None,
-        sd1=None,
-        tl=8.0,
         gm=None,
         gm_component=None,
         Sa=None,
         Sd=None,
         n_modes=None,
-        ji=0.05,
+        ji=None,
         direction="x",
         scale_factor=1.0,
         combination="CQC",
+        lumped: bool = True,
+        include_rotational_inertia: bool = False,
     ):
         """
         Perform linear dynamic Response Spectrum Analysis (RSA) on the structure.
 
         Parameters
         ----------
+        params : SeismicParameters, optional
+            SeismicParameters object from struct_load providing design response spectrum.
         spectrum_curve : callable or tuple or dict, optional
             Continuous response spectrum curve Sa(T).
-        sds : float, optional
-            ASCE 7 short-period design spectral response acceleration parameter SDS.
-        sd1 : float, optional
-            ASCE 7 1-second design spectral response acceleration parameter SD1.
-        tl : float, optional
-            ASCE 7 long-period transition period (seconds). Defaults to 8.0.
         gm : GroundMotion or str, optional
             Ground motion object, built-in event name (e.g. 'elcentro', 'northridge',
             'loma_prieta', 'san_fernando', 'elcentro_chopra'), or composite string (e.g. 'northridge:hor2').
@@ -492,13 +510,17 @@ class Structure:
         n_modes : int, optional
             Number of modes to include. Defaults to all available free DOFs.
         ji : float or array-like, optional
-            Modal damping ratio(s). Defaults to 0.05 (5%).
+            Modal damping ratio(s). If None, defaults to params.damping_ratio or 0.05 (5%).
         direction : str, optional
             Excitation direction ('x' or 'y'). Defaults to 'x'.
         scale_factor : float, optional
             Scale factor for spectral values (e.g. 9.80665 or 386.09 if Sa is in g).
         combination : str, optional
             Modal combination method: 'CQC', 'SRSS', or 'ABS'. Defaults to 'CQC'.
+        lumped : bool, optional
+            Whether to use lumped mass formulation. Defaults to True (commercial standard for RSA).
+        include_rotational_inertia : bool, optional
+            Whether to include rotational mass inertia when lumped=True. Defaults to False.
 
         Returns
         -------
@@ -515,7 +537,19 @@ class Structure:
             self.number_dofs()
         self.apply_boundary_conditions()
 
-        mdf = MDF.from_fem2d(self, zeta=ji, n_modes=n_modes)
+        if ji is None:
+            ji = getattr(params, "damping_ratio", 0.05) if params is not None else 0.05
+
+        if spectrum_curve is None and params is not None and getattr(params, "sa_spectrum", None) is not None:
+            spectrum_curve = params.sa_spectrum
+
+        mdf = MDF.from_fem2d(
+            self,
+            zeta=ji,
+            n_modes=n_modes,
+            lumped=lumped,
+            include_rotational_inertia=include_rotational_inertia,
+        )
         rsa = ResponseSpectrumAnalysis(
             mdf=mdf,
             ji=ji,
@@ -525,9 +559,7 @@ class Structure:
             Sd=Sd,
             Sa=Sa,
             spectrum_curve=spectrum_curve,
-            sds=sds,
-            sd1=sd1,
-            tl=tl,
+            params=params,
             direction=direction,
             scale_factor=scale_factor,
         )

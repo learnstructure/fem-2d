@@ -502,7 +502,7 @@ class BeamElement(ElementBase):
 
         return points
 
-    def mass_matrix(self):
+    def mass_matrix(self, lumped: bool = False, include_rotational_inertia: bool = False):
         """
         Return the 6x6 global mass matrix (including rotational inertia and extra mass).
 
@@ -519,6 +519,19 @@ class BeamElement(ElementBase):
 
         # Effective density for translational part: material + extra
         rho_eff = rho + (extra / A) if A != 0 else rho
+
+        if lumped:
+            m_half = (rho_eff * A * L) / 2.0
+            m_local = np.zeros((6, 6))
+            m_local[0, 0] = m_half
+            m_local[1, 1] = m_half
+            m_local[3, 3] = m_half
+            m_local[4, 4] = m_half
+            if include_rotational_inertia:
+                m_local[2, 2] = (rho * I * L) / 24.0
+                m_local[5, 5] = (rho * I * L) / 24.0
+            T = self.transformation_matrix()
+            return T.T @ m_local @ T
 
         # ---- Translational mass (m1) ----
         factor_trans = rho_eff * A * L / 420.0

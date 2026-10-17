@@ -316,7 +316,7 @@ class TrussElement(ElementBase):
 
         return [(x_i_def, y_i_def), (x_j_def, y_j_def)]
 
-    def mass_matrix(self):
+    def mass_matrix(self, lumped: bool = False, include_rotational_inertia: bool = False):
         """
         Return the 6x6 global mass matrix.
         Lumps the element and extra mass equally to translational DOFs at ends.
