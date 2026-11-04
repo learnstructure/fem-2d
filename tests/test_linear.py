@@ -99,13 +99,12 @@ def test_frame_5_1_v2():
     I_half = I_full / 2
 
     material = ElasticMaterial(E)  # same material for all elements
-    section_full = Section(A, I_full)
-    section_half = Section(A, I_half)
-
+    section_full = Section(A, I_full, material=material)
+    section_half = Section(A, I_half, material=material)
     # 3. Create elements
-    elem1 = BeamElement(1, node1, node2, material, section_full)
-    elem2 = BeamElement(2, node2, node3, material, section_half)
-    elem3 = BeamElement(3, node3, node4, material, section_full)
+    elem1 = BeamElement(1, node1, node2, section_full)
+    elem2 = BeamElement(2, node2, node3, section_half)
+    elem3 = BeamElement(3, node3, node4, section_full)
 
     # 4. Create structure and add nodes/elements
     structure = Structure()
@@ -282,11 +281,10 @@ def test_beam_4_11():
     A = 6500e-6
     I = 2e-4
     material = ElasticMaterial(E)
-    section = Section(A, I)
-
-    elem1 = BeamElement(1, node1, node2, material, section)
-    elem2 = BeamWithHingesElement(2, node2, node3, material, section, hinge_j=True)
-    elem3 = BeamElement(3, node3, node4, material, section)
+    section = Section(A, I, material=material)
+    elem1 = BeamElement(1, node1, node2, section)
+    elem2 = BeamWithHingesElement(2, node2, node3, section, hinge_j=True)
+    elem3 = BeamElement(3, node3, node4, section)
 
     structure = Structure()
     for node in (node1, node2, node3, node4):
@@ -324,11 +322,10 @@ def test_frame_7_1():
     A = 6500e-6
     I = 150e-6
     material = ElasticMaterial(E)
-    section = Section(A, I)
-
-    elem1 = BeamWithHingesElement(1, node1, node2, material, section, hinge_j=True)
-    elem2 = BeamElement(2, node2, node3, material, section)
-    elem3 = BeamElement(3, node3, node4, material, section)
+    section = Section(A, I, material=material)
+    elem1 = BeamWithHingesElement(1, node1, node2, section, hinge_j=True)
+    elem2 = BeamElement(2, node2, node3, section)
+    elem3 = BeamElement(3, node3, node4, section)
 
     structure = Structure()
     for node in (node1, node2, node3, node4):
@@ -430,11 +427,10 @@ def test_frame_7_1_beam_element_native_hinge():
     A = 6500e-6
     I = 150e-6
     material = ElasticMaterial(E)
-    section = Section(A, I)
-
-    elem1 = BeamElement(1, node1, node2, material, section, hinge_j=True)
-    elem2 = BeamElement(2, node2, node3, material, section)
-    elem3 = BeamElement(3, node3, node4, material, section)
+    section = Section(A, I, material=material)
+    elem1 = BeamElement(1, node1, node2, section, hinge_j=True)
+    elem2 = BeamElement(2, node2, node3, section)
+    elem3 = BeamElement(3, node3, node4, section)
 
     structure = Structure()
     for node in (node1, node2, node3, node4):
@@ -466,10 +462,9 @@ def test_beam_element_releases_vector_equivalence():
     node1 = Node(1, 0, 0)
     node2 = Node(2, 4, 0)
     mat = ElasticMaterial(200e6)
-    sec = Section(0.01, 1e-4)
-
-    elem_flag = BeamElement(1, node1, node2, mat, sec, hinge_j=True)
-    elem_vec = BeamElement(2, node1, node2, mat, sec, releases_j=[False, False, True])
+    sec = Section(0.01, 1e-4, material=mat)
+    elem_flag = BeamElement(1, node1, node2, sec, hinge_j=True)
+    elem_vec = BeamElement(2, node1, node2, sec, releases_j=[False, False, True])
 
     k1 = elem_flag.local_stiffness()
     k2 = elem_vec.local_stiffness()
@@ -482,9 +477,8 @@ def test_beam_element_both_hinges_stiffness():
     node1 = Node(1, 0, 0)
     node2 = Node(2, 4, 0)
     mat = ElasticMaterial(200e6)
-    sec = Section(0.01, 1e-4)
-
-    elem = BeamElement(1, node1, node2, mat, sec, hinge_i=True, hinge_j=True)
+    sec = Section(0.01, 1e-4, material=mat)
+    elem = BeamElement(1, node1, node2, sec, hinge_i=True, hinge_j=True)
     k = elem.local_stiffness()
     assert np.allclose(k, k.T)
     # Flexural and shear DOFs must be zero

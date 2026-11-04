@@ -36,9 +36,8 @@ def build_hw4_structure():
 
     # Material and sections
     material = ElasticMaterial(6000)  # ksi
-    beam_section = Section.from_rectangle(width=20, depth=35)
-    column_section = Section.from_rectangle(width=20, depth=20)
-
+    beam_section = Section.from_rectangle(width=20, depth=35, material=material)
+    column_section = Section.from_rectangle(width=20, depth=20, material=material)
     # Build nodes
     structure = Structure()
     nodes = []
@@ -60,27 +59,14 @@ def build_hw4_structure():
     for story in range(1, n_stories + 1):
         left_node = nodes[2 * story]
         right_node = nodes[2 * story + 1]
-        beam = BeamElement(
-            story,
-            left_node,
-            right_node,
-            material,
-            beam_section,
-            mass=0.0,
-        )
+        beam = BeamElement(story, left_node, right_node, beam_section, mass=0.0)
         structure.add_element(beam)
 
     # Columns (vertical)
     for story in range(n_stories):
         bottom_node = nodes[2 * story]
         top_node = nodes[2 * (story + 1)]
-        col = BeamElement(
-            n_stories + story + 1,
-            bottom_node,
-            top_node,
-            material,
-            column_section,
-        )
+        col = BeamElement(n_stories + story + 1, bottom_node, top_node, column_section)
         structure.add_element(col)
 
     for story in range(n_stories):
@@ -89,13 +75,7 @@ def build_hw4_structure():
         # The original script passed ``column_section.A`` and ``column_section.I``
         # separately; BeamElement accepts a ``Section`` instance, so we reuse the
         # ``column_section`` directly for consistency.
-        col = BeamElement(
-            2 * n_stories + story + 1,
-            bottom_node,
-            top_node,
-            material,
-            column_section,
-        )
+        col = BeamElement(2 * n_stories + story + 1, bottom_node, top_node, column_section)
         structure.add_element(col)
 
     # Supports at the base
@@ -159,7 +139,7 @@ def test_hw4_response_spectrum_analysis():
     from struct_load import SeismicParameters
 
     structure, _, _ = build_hw4_structure()
-    params = SeismicParameters(sds=1.0, sd1=0.6, tl=8.0, site_class="D", damping_ratio=0.05)
+    params = SeismicParameters(sds=1.0, sd1=0.6, tl=8.0, site_class="D", risk_category="II", system_type="steel_smf", damping_ratio=0.05)
     res = structure.response_spectrum_analysis(
         params=params,
         direction="x",

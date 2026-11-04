@@ -16,12 +16,11 @@ EA = 45155.0  # axial stiffness [kN]
 A = EA / E  # back-computed area [m^2]
 
 material = ElasticMaterial(E)
-section = Section(A)
-
+section = Section(A, material=material)
 # 3. Create truss elements.
-elem1 = TrussElement(1, node1, node2, material, section)
-elem2 = TrussElement(2, node2, node3, material, section)
-elem3 = TrussElement(3, node3, node1, material, section)
+elem1 = TrussElement(1, node1, node2, section)
+elem2 = TrussElement(2, node2, node3, section)
+elem3 = TrussElement(3, node3, node1, section)
 
 # 4. Build structure
 structure = Structure()

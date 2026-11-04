@@ -48,6 +48,25 @@ class Node:
         self.dofs = None  # will be set by Structure
         self.mass = 0.0  # translational lumped mass
         self.inertia = 0.0  # rotational lumped inertia (optional)
+        self.springs = [0.0, 0.0, 0.0]  # support spring stiffnesses [kx, ky, krz]
+
+    def set_springs(self, kx=0.0, ky=0.0, krz=0.0):
+        """
+        Set translational and rotational spring stiffnesses for this node's degrees of freedom.
+
+        Parameters
+        ----------
+        kx : float or list/tuple, optional
+            Stiffness along global x-axis (force/length), or a 3-element list [kx, ky, krz].
+        ky : float, optional
+            Stiffness along global y-axis (force/length).
+        krz : float, optional
+            Rotational stiffness about global z-axis (moment/radian).
+        """
+        if isinstance(kx, (list, tuple)) and len(kx) >= 3:
+            self.springs = [float(kx[0]), float(kx[1]), float(kx[2])]
+        else:
+            self.springs = [float(kx), float(ky), float(krz)]
 
     def set_support(self, ux_fixed=False, uy_fixed=False, rz_fixed=False):
         """

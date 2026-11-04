@@ -11,7 +11,7 @@ class BeamElementNL(BeamElement):
     Inherits from BeamElement with geometric_nonlinear=True by default for backward compatibility.
     """
 
-    def __init__(self, eid, node_i, node_j, material, section, mass=0.0):
+    def __init__(self, eid, node_i, node_j, section, mass=0.0):
         """
         Initialize a BeamElementNL object.
         """
@@ -19,7 +19,6 @@ class BeamElementNL(BeamElement):
             eid=eid,
             node_i=node_i,
             node_j=node_j,
-            material=material,
             section=section,
             mass=mass,
             geometric_nonlinear=True,

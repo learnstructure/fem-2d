@@ -26,13 +26,12 @@ I_full = 200
 I_half = I_full / 2
 
 material = ElasticMaterial(E)  # same material for all elements
-section_full = Section(A, I_full)
-section_half = Section(A, I_half)
-
+section_full = Section(A, I_full, material=material)
+section_half = Section(A, I_half, material=material)
 # 3. Create elements
-elem1 = BeamElement(1, node1, node2, material, section_full)
-elem2 = BeamElement(2, node2, node3, material, section_half)
-elem3 = BeamElement(3, node3, node4, material, section_full)
+elem1 = BeamElement(1, node1, node2, section_full)
+elem2 = BeamElement(2, node2, node3, section_half)
+elem3 = BeamElement(3, node3, node4, section_full)
 
 # 4. Create structure and add nodes/elements
 structure = Structure()

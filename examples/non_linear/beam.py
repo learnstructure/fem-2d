@@ -15,8 +15,7 @@ h = 0.25
 E = 200e9  # Pa
 
 material = ElasticMaterial(E)
-section = Section.from_rectangle(width=b, depth=h)
-
+section = Section.from_rectangle(width=b, depth=h, material=material)
 # Create 5 elements (6 nodes)
 n_elem = 5
 x = np.linspace(0, L, n_elem + 1)
@@ -30,7 +29,7 @@ for node in nodes:
 
 # Create beam elements using standard BeamElement with section!
 for i in range(n_elem):
-    elem = BeamElement(i + 1, nodes[i], nodes[i + 1], material, section)
+    elem = BeamElement(i + 1, nodes[i], nodes[i + 1], section)
     structure.add_element(elem)
 
 # Support: node 1 fully fixed

@@ -44,16 +44,16 @@ def main() -> None:
             ElasticMaterial(id="StructuralSteel", E=200e9, rho=7850.0),
         ],
         sections=[
-            RectangularSection(id="ColSec", b=0.30, h=0.30),   # columns
-            RectangularSection(id="BeamSec", b=0.25, h=0.45),  # beam
+            RectangularSection(id="ColSec", material_id="StructuralSteel", b=0.30, h=0.30),   # columns
+            RectangularSection(id="BeamSec", material_id="StructuralSteel", b=0.25, h=0.45),  # beam
         ],
         elements=[
             BeamElement(id=1, start_node=1, end_node=2,
-                        material_id="StructuralSteel", section_id="ColSec"),
+                        section_id="ColSec"),
             BeamElement(id=2, start_node=2, end_node=3,
-                        material_id="StructuralSteel", section_id="BeamSec"),
+                        section_id="BeamSec"),
             BeamElement(id=3, start_node=3, end_node=4,
-                        material_id="StructuralSteel", section_id="ColSec"),
+                        section_id="ColSec"),
         ],
         supports=[
             Support.fixed(node_id=1, name="Left Support"),

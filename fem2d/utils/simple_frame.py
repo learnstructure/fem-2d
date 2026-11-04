@@ -13,6 +13,17 @@ from fem2d.structure import Structure
 from fem2d.loads import DistributedLoad, ElementPointLoad
 
 
+def _with_material(section: Section, material: Any) -> Section:
+    """``section`` if it already has ``material``, else a copy of it with ``material`` (the caller's section, which
+    other members may share, is not changed)."""
+    if section.material is material:
+        return section
+    import copy
+    copied = copy.copy(section)
+    copied.material = material
+    return copied
+
+
 class SimpleFrame:
     """
     A high-level interface/wrapper for building and solving 2D frame structures.
@@ -166,15 +177,14 @@ class SimpleFrame:
             material = ElasticMaterial(E, nu=nu, G=G, rho=rho, unit_weight=unit_weight)
 
         if isinstance(A, Section):
-            section = A
+            section = _with_material(A, material)
         else:
-            section = Section(A, I, As=As, fs=fs)
+            section = Section(A, I, As=As, fs=fs, material=material)
 
         elem = BeamElement(
             id,
             node_i,
             node_j,
-            material,
             section,
             hinge_i=hinge_i,
             hinge_j=hinge_j,
@@ -232,11 +242,11 @@ class SimpleFrame:
             material = ElasticMaterial(E, nu=nu, rho=rho, unit_weight=unit_weight)
 
         if isinstance(A, Section):
-            section = A
+            section = _with_material(A, material)
         else:
-            section = Section(A, I)
+            section = Section(A, I, material=material)
 
-        elem = TrussElement(id, node_i, node_j, material, section)
+        elem = TrussElement(id, node_i, node_j, section)
         self.structure.add_element(elem)
         return elem
 

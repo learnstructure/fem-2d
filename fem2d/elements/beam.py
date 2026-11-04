@@ -47,8 +47,8 @@ class BeamElement(ElementBase):
         eid: Union[int, str],
         node_i,
         node_j,
-        material,
-        section,
+        material=None,
+        section=None,
         mass: float = 0.0,
         geometric_nonlinear: bool = False,
         hinge_i: bool = False,
@@ -68,9 +68,9 @@ class BeamElement(ElementBase):
             Start node.
         node_j : Node
             End node.
-        material : ElasticMaterial or UniaxialMaterial
+        material : ElasticMaterial or UniaxialMaterial, optional
             Material definition.
-        section : Section
+        section : Section, optional
             Section definition (containing A and I).
         mass : float, optional
             Additional distributed mass per unit length. Defaults to 0.0.
@@ -91,13 +91,19 @@ class BeamElement(ElementBase):
         """
         super().__init__(eid, node_i, node_j)
 
+        if section is None and hasattr(material, "A") and hasattr(material, "I"):
+            section = material
+            material = getattr(section, "material", None)
+        elif material is None and section is not None:
+            material = getattr(section, "material", None)
+
         # Handle Section object or numeric area/inertia fallback
         effective_mass = mass
         if hasattr(section, "A") and hasattr(section, "I"):
             self.section = section
             self.area = section.A
             self.inertia = section.I
-            self.material = material
+            self.material = material if material is not None else getattr(section, "material", None)
         elif hasattr(material, "A") and hasattr(material, "I"):
             self.section = material
             self.area = material.A
@@ -134,6 +140,10 @@ class BeamElement(ElementBase):
 
         self.hinge_i = bool(self.releases_i[2])
         self.hinge_j = bool(self.releases_j[2])
+
+        self._raw_eq_load_local = np.zeros(6, dtype=float)
+        self.eq_load_local = np.zeros(6, dtype=float)
+        self.eq_load = np.zeros(6, dtype=float)
 
         # State variables for non-linear updates
         self.L0 = None
@@ -190,8 +200,15 @@ class BeamElement(ElementBase):
         K_cr = k[np.ix_(released_dofs, retained_dofs)]
         K_cc = k[np.ix_(released_dofs, released_dofs)]
 
-        K_cc_inv = np.linalg.pinv(K_cc)
-        K_r_star = K_rr - K_rc @ K_cc_inv @ K_cr
+        # Mechanism check
+        if np.linalg.cond(K_cc) > 1e12:
+            raise ValueError(f"Element {self.id}: end releases {self.releases_i}/{self.releases_j} make the member a mechanism")
+        try:
+            K_cr_cond = np.linalg.solve(K_cc, K_cr)
+        except np.linalg.LinAlgError:
+            raise ValueError(f"Element {self.id}: end releases {self.releases_i}/{self.releases_j} make the member a mechanism")
+
+        K_r_star = K_rr - K_rc @ K_cr_cond
 
         k_new = np.zeros((6, 6), dtype=float)
         for i_idx, r_i in enumerate(retained_dofs):
@@ -199,20 +216,9 @@ class BeamElement(ElementBase):
                 k_new[r_i, r_j] = K_r_star[i_idx, j_idx]
         return k_new
 
-    def local_stiffness(self):
+    def _unreleased_local_stiffness(self) -> np.ndarray:
         """
-        Return the 6x6 element stiffness matrix in local coordinates,
-        accounting for shear deformations (if enabled) and any released
-        degrees of freedom.
-
-        Reference:
-        Kassimali A. (2022). Matrix Analysis of Structures, Chapter 9,
-        Eq. (9.60) & Eq. (9.63), pp. 546-552.
-
-        Returns
-        -------
-        numpy.ndarray
-            6x6 local stiffness matrix.
+        Return the 6x6 element stiffness matrix in local coordinates without releases.
         """
         E = self.material.E if self.material is not None else 1.0
         A = self.area
@@ -243,7 +249,7 @@ class BeamElement(ElementBase):
         k4 = (4.0 + beta_s) * E * I / (L * factor)
         k2 = (2.0 - beta_s) * E * I / (L * factor)
 
-        k = np.array(
+        return np.array(
             [
                 [EA_L, 0.0, 0.0, -EA_L, 0.0, 0.0],
                 [0.0, k12, k6, 0.0, -k12, k6],
@@ -254,10 +260,82 @@ class BeamElement(ElementBase):
             ]
         )
 
+    def local_stiffness(self) -> np.ndarray:
+        """
+        Return the 6x6 element stiffness matrix in local coordinates,
+        accounting for shear deformations (if enabled) and any released
+        degrees of freedom.
+        """
+        k = self._unreleased_local_stiffness()
         if any(self.releases_i) or any(self.releases_j):
+            k_unreleased = k.copy()
             k = self._apply_releases(k)
-
+            self._condense_loads(k_unreleased=k_unreleased)
         return k
+
+    def _condense_loads(self, k_unreleased: Optional[np.ndarray] = None) -> None:
+        """
+        Condense equivalent nodal loads for released degrees of freedom:
+            f0_r* = f0_r - K_rc @ inv(K_cc) @ f0_c
+            f0_c* = 0
+        """
+        if not hasattr(self, "_raw_eq_load_local") or self._raw_eq_load_local is None:
+            self._raw_eq_load_local = np.zeros(6, dtype=float)
+
+        rel_flags = [False] * 6
+        if self.releases_i:
+            for i, r in enumerate(self.releases_i):
+                if r:
+                    rel_flags[i] = True
+        if self.releases_j:
+            for i, r in enumerate(self.releases_j):
+                if r:
+                    rel_flags[3 + i] = True
+
+        released_dofs = [idx for idx, flag in enumerate(rel_flags) if flag]
+        retained_dofs = [idx for idx, flag in enumerate(rel_flags) if not flag]
+
+        if not released_dofs:
+            self.eq_load_local = self._raw_eq_load_local.copy()
+            T = self.transformation_matrix()
+            self.eq_load = T.T @ self.eq_load_local
+            return
+
+        if k_unreleased is None:
+            k_unreleased = self._unreleased_local_stiffness()
+
+        K_rc = k_unreleased[np.ix_(retained_dofs, released_dofs)]
+        K_cc = k_unreleased[np.ix_(released_dofs, released_dofs)]
+
+        # Mechanism check
+        if np.linalg.cond(K_cc) > 1e12:
+            raise ValueError(f"Element {self.id}: end releases {self.releases_i}/{self.releases_j} make the member a mechanism")
+
+        f0 = self._raw_eq_load_local
+        f0_r = f0[retained_dofs]
+        f0_c = f0[released_dofs]
+
+        try:
+            f0_c_cond = np.linalg.solve(K_cc, f0_c)
+        except np.linalg.LinAlgError:
+            raise ValueError(f"Element {self.id}: end releases {self.releases_i}/{self.releases_j} make the member a mechanism")
+
+        f0_r_star = f0_r - K_rc @ f0_c_cond
+
+        condensed_eq = np.zeros(6, dtype=float)
+        condensed_eq[retained_dofs] = f0_r_star
+        condensed_eq[released_dofs] = 0.0
+
+        self.eq_load_local = condensed_eq
+        T = self.transformation_matrix()
+        self.eq_load = T.T @ self.eq_load_local
+
+    def add_equivalent_load(self, eq_local: np.ndarray) -> None:
+        """Accumulate equivalent local load and condense if releases are present."""
+        if not hasattr(self, "_raw_eq_load_local") or self._raw_eq_load_local is None:
+            self._raw_eq_load_local = np.zeros(6, dtype=float)
+        self._raw_eq_load_local += eq_local
+        self._condense_loads()
 
     def update_state(self, global_disp):
         """
@@ -377,7 +455,9 @@ class BeamElement(ElementBase):
             u_local = T @ u_global
             self.k_local = self.local_stiffness()
             self.f_local = self.k_local @ u_local
-            if hasattr(self, "eq_load") and self.eq_load is not None:
+            if hasattr(self, "eq_load_local") and self.eq_load_local is not None:
+                self.f_local -= self.eq_load_local
+            elif hasattr(self, "eq_load") and self.eq_load is not None:
                 eq_load_local = T @ self.eq_load
                 self.f_local -= eq_load_local
             if self.releases_i:
@@ -414,7 +494,9 @@ class BeamElement(ElementBase):
             T = self.transformation_matrix()
             u_local = T @ u_global
             f_loc = self.local_stiffness() @ u_local
-            if hasattr(self, "eq_load") and self.eq_load is not None:
+            if hasattr(self, "eq_load_local") and self.eq_load_local is not None:
+                f_loc -= self.eq_load_local
+            elif hasattr(self, "eq_load") and self.eq_load is not None:
                 eq_load_local = T @ self.eq_load
                 f_loc -= eq_load_local
             if self.releases_i:

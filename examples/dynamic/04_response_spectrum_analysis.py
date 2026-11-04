@@ -93,7 +93,7 @@ print("=" * 70)
 # 3. RSA Method 1: Continuous ASCE 7 Design Spectrum (SDS=1.0g, SD1=0.6g)
 # -----------------------------------------------------------------------------
 print("\n--- [Analysis 1] ASCE 7 Design Spectrum (SDS = 1.0g, SD1 = 0.6g) ---")
-asce_params = SeismicParameters(sds=1.0, sd1=0.6, tl=8.0, site_class="D", damping_ratio=0.05)
+asce_params = SeismicParameters(sds=1.0, sd1=0.6, tl=8.0, site_class="D", risk_category="II", damping_ratio=0.05)
 rsa_asce = frame.response_spectrum_analysis(
     params=asce_params,
     direction="x",

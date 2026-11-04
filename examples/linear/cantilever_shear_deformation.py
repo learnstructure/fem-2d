@@ -52,8 +52,7 @@ G = 77.2e6    # kN/m^2
 
 # Material and section
 material = ElasticMaterial(E=E, G=G)
-section = Section.from_rectangle(width=b, depth=d)
-
+section = Section.from_rectangle(width=b, depth=d, material=material)
 beta_s = (12.0 * E * section.I) / (G * section.As * L**2)
 delta_M_theory = (P * L**3) / (3.0 * E * section.I)
 delta_s_theory = (beta_s / 4.0) * delta_M_theory
@@ -78,7 +77,7 @@ n1_eb = Node(1, 0.0, 0.0)
 n2_eb = Node(2, L, 0.0)
 n1_eb.set_support(ux_fixed=True, uy_fixed=True, rz_fixed=True)
 
-elem_eb = BeamElement(1, n1_eb, n2_eb, material, section, include_shear_deformation=False)
+elem_eb = BeamElement(1, n1_eb, n2_eb, section, include_shear_deformation=False)
 
 struct_eb = Structure()
 struct_eb.add_node(n1_eb)
@@ -102,7 +101,7 @@ n1_timo = Node(1, 0.0, 0.0)
 n2_timo = Node(2, L, 0.0)
 n1_timo.set_support(ux_fixed=True, uy_fixed=True, rz_fixed=True)
 
-elem_timo = BeamElement(1, n1_timo, n2_timo, material, section, include_shear_deformation=True)
+elem_timo = BeamElement(1, n1_timo, n2_timo, section, include_shear_deformation=True)
 
 struct_timo = Structure()
 struct_timo.add_node(n1_timo)

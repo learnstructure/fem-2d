@@ -19,12 +19,11 @@ def test_truss_nonlinear():
 
     material = ElasticMaterial(E)
     from fem2d.sections import Section
-    section = Section(A)
-
+    section = Section(A, material=material)
     # 3. Create nonlinear truss elements
-    elem1 = TrussElementNL(1, node1, node2, material, section)
-    elem2 = TrussElementNL(2, node2, node3, material, section)
-    elem3 = TrussElementNL(3, node3, node1, material, section)
+    elem1 = TrussElementNL(1, node1, node2, section)
+    elem2 = TrussElementNL(2, node2, node3, section)
+    elem3 = TrussElementNL(3, node3, node1, section)
 
     # 4. Build structure
     structure = Structure()

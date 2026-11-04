@@ -12,9 +12,9 @@ class TrussElement(ElementBase):
 
     Attributes
     ----------
-    material : ElasticMaterial or None
-        Material definition for the element.
-    area : float or None
+    section : Section
+        Cross-section of the element (area A and its ``material``: ElasticMaterial or UniaxialMaterial).
+    area : float
         Cross-sectional area.
     mass : float
         Additional distributed mass per unit length.
@@ -25,7 +25,6 @@ class TrussElement(ElementBase):
         eid,
         node_i,
         node_j,
-        material,
         section,
         mass=0.0,
         geometric_nonlinear=False,
@@ -41,40 +40,19 @@ class TrussElement(ElementBase):
             Start node.
         node_j : Node
             End node.
-        material : ElasticMaterial or UniaxialMaterial
-            Material definition.
         section : Section
-            Section definition (containing area A).
+            Section definition (area A and its ``material``: ElasticMaterial or UniaxialMaterial).
         mass : float, optional
             Additional distributed mass per unit length. Defaults to 0.0.
         geometric_nonlinear : bool, optional
             Whether to use corotational geometric non-linear formulation. Defaults to False.
         """
         super().__init__(eid, node_i, node_j)
-
-        effective_mass = mass
-        if hasattr(section, "A"):
-            self.section = section
-            self.area = section.A
-            self.material = material
-        elif hasattr(material, "A"):
-            self.section = material
-            self.area = material.A
-            self.material = getattr(material, "material", None)
-            if isinstance(section, (int, float)):
-                effective_mass = float(section)
-        elif isinstance(section, (int, float)):
-            from fem2d.sections.section import Section
-            area_val = float(section)
-            self.section = Section(area_val)
-            self.area = area_val
-            self.material = material
-        else:
-            self.material = material
-            self.section = section
-            self.area = getattr(section, "A", None)
-
-        self.mass = float(effective_mass)
+        if getattr(section, "material", None) is None:
+            raise ValueError(f"Truss element {eid!r}: its section has no material (Section(..., material=...))")
+        self.section = section
+        self.area = section.A
+        self.mass = float(mass)
         self.geometric_nonlinear = geometric_nonlinear
 
         # Initial length and state variables
@@ -95,7 +73,7 @@ class TrussElement(ElementBase):
         numpy.ndarray
             4x4 stiffness matrix.
         """
-        E = self.material.E if self.material is not None else 1.0
+        E = self.section.material.E
         k = self.area * E / self.length
         return np.array([[k, 0, -k, 0], [0, 0, 0, 0], [-k, 0, k, 0], [0, 0, 0, 0]])
 
@@ -162,7 +140,7 @@ class TrussElement(ElementBase):
                 self.cy = dy / self.L
 
             u = self.L0 - self.L
-            E = self.material.E if self.material is not None else 1.0
+            E = self.section.material.E
             self.Q = (E * self.area / self.L0) * u
 
             F = np.array(
@@ -328,7 +306,7 @@ class TrussElement(ElementBase):
         """
         L = self.length
         A = self.area
-        rho = self.material.rho
+        rho = self.section.material.rho
         extra = self.mass
 
         total_mass = (rho * A + extra) * L

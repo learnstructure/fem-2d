@@ -38,13 +38,12 @@ def test_cantilever_rectangular_exact_kassimali_example_9_6():
     G = 77.2e6
 
     mat = ElasticMaterial(E=E, G=G)
-    sec = Section.from_rectangle(width=b, depth=d)
-
+    sec = Section.from_rectangle(width=b, depth=d, material=mat)
     # 1. Euler-Bernoulli (shear neglected)
     n1_eb = Node(1, 0.0, 0.0)
     n2_eb = Node(2, L, 0.0)
     n1_eb.set_support(True, True, True)
-    elem_eb = BeamElement(1, n1_eb, n2_eb, mat, sec, include_shear_deformation=False)
+    elem_eb = BeamElement(1, n1_eb, n2_eb, sec, include_shear_deformation=False)
     s_eb = Structure()
     s_eb.add_node(n1_eb)
     s_eb.add_node(n2_eb)
@@ -64,7 +63,7 @@ def test_cantilever_rectangular_exact_kassimali_example_9_6():
     n1_s = Node(1, 0.0, 0.0)
     n2_s = Node(2, L, 0.0)
     n1_s.set_support(True, True, True)
-    elem_s = BeamElement(1, n1_s, n2_s, mat, sec, include_shear_deformation=True)
+    elem_s = BeamElement(1, n1_s, n2_s, sec, include_shear_deformation=True)
     s_timo = Structure()
     s_timo.add_node(n1_s)
     s_timo.add_node(n2_s)
@@ -103,8 +102,7 @@ def test_cantilever_circular_section():
     G = E / (2.0 * (1.0 + nu))
 
     mat = ElasticMaterial(E=E, nu=nu)
-    sec = Section.from_circle(diameter=dia)
-
+    sec = Section.from_circle(diameter=dia, material=mat)
     assert abs(sec.fs - (10.0 / 9.0)) < 1e-10
     assert abs(sec.As - 0.9 * sec.A) < 1e-10
 
@@ -112,7 +110,7 @@ def test_cantilever_circular_section():
     n2 = Node(2, L, 0.0)
     n1.set_support(True, True, True)
 
-    elem = BeamElement(1, n1, n2, mat, sec, include_shear_deformation=True)
+    elem = BeamElement(1, n1, n2, sec, include_shear_deformation=True)
     struct = Structure()
     struct.add_node(n1)
     struct.add_node(n2)
@@ -143,8 +141,7 @@ def test_simply_supported_beam_shear_deformation():
     G = 12.5e6
 
     mat = ElasticMaterial(E=E, G=G)
-    sec = Section.from_rectangle(width=b, depth=d)
-
+    sec = Section.from_rectangle(width=b, depth=d, material=mat)
     n1 = Node(1, 0.0, 0.0)
     n2 = Node(2, L / 2.0, 0.0)
     n3 = Node(3, L, 0.0)
@@ -153,8 +150,8 @@ def test_simply_supported_beam_shear_deformation():
     n1.set_support(True, True, False)
     n3.set_support(False, True, False)
 
-    e1 = BeamElement(1, n1, n2, mat, sec, include_shear_deformation=True)
-    e2 = BeamElement(2, n2, n3, mat, sec, include_shear_deformation=True)
+    e1 = BeamElement(1, n1, n2, sec, include_shear_deformation=True)
+    e2 = BeamElement(2, n2, n3, sec, include_shear_deformation=True)
 
     struct = Structure()
     struct.add_node(n1)
@@ -190,7 +187,6 @@ def test_simple_frame_shear_deformation():
     G = 77.2e6
 
     sec = Section.from_rectangle(width=b, depth=d)
-
     frame = SimpleFrame()
     frame.add_node(1, 0.0, 0.0)
     frame.add_node(2, L, 0.0)
@@ -230,20 +226,11 @@ def test_shear_deformation_with_end_hinge():
     G = E / (2.0 * (1.0 + nu))
 
     mat = ElasticMaterial(E=E, nu=nu)
-    sec = Section.from_rectangle(width=b, depth=d)
-
+    sec = Section.from_rectangle(width=b, depth=d, material=mat)
     n1 = Node(1, 0.0, 0.0)
     n2 = Node(2, L, 0.0)
 
-    elem = BeamElement(
-        1,
-        n1,
-        n2,
-        mat,
-        sec,
-        hinge_j=True,
-        include_shear_deformation=True,
-    )
+    elem = BeamElement(1, n1, n2, sec, hinge_j=True, include_shear_deformation=True)
 
     k_local = elem.local_stiffness()
 
@@ -264,13 +251,12 @@ def test_shear_deformation_disabled_by_default():
     n1 = Node(1, 0.0, 0.0)
     n2 = Node(2, 4.0, 0.0)
     mat = ElasticMaterial(E=200e6)
-    sec = Section.from_rectangle(width=0.2, depth=0.4)
-
-    elem_default = BeamElement(1, n1, n2, mat, sec)
+    sec = Section.from_rectangle(width=0.2, depth=0.4, material=mat)
+    elem_default = BeamElement(1, n1, n2, sec)
     assert elem_default.include_shear_deformation is False
 
-    elem_eb = BeamElement(2, n1, n2, mat, sec, include_shear_deformation=False)
-    elem_timo = BeamElement(3, n1, n2, mat, sec, include_shear_deformation=True)
+    elem_eb = BeamElement(2, n1, n2, sec, include_shear_deformation=False)
+    elem_timo = BeamElement(3, n1, n2, sec, include_shear_deformation=True)
 
     assert np.allclose(elem_default.local_stiffness(), elem_eb.local_stiffness())
     # Timoshenko stiffness must differ from Euler-Bernoulli

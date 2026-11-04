@@ -22,12 +22,11 @@ def test_fem2d_structdyn_linear_bridge():
     A = 0.01
     Izz = 0.0001
     mat = ElasticMaterial(E)
-    sec = Section(A, Izz)
-
+    sec = Section(A, Izz, material=mat)
     from fem2d.elements import BeamElement
-    el1 = BeamElement(1, node1, node2, mat, sec)
-    el2 = BeamElement(2, node2, node3, mat, sec)
-    el3 = BeamElement(3, node3, node4, mat, sec)
+    el1 = BeamElement(1, node1, node2, sec)
+    el2 = BeamElement(2, node2, node3, sec)
+    el3 = BeamElement(3, node3, node4, sec)
 
     struct = Structure()
     for n in [node1, node2, node3, node4]:
@@ -67,10 +66,9 @@ def test_fem2d_structdyn_nonlinear_bridge():
     A = 0.002
 
     mat = BilinearMaterial(E, sigma_y, E_t)
-    sec = Section(A)
-
-    el1 = TrussElementNL(1, node1, node2, mat, sec)
-    el2 = TrussElementNL(2, node2, node3, mat, sec)
+    sec = Section(A, material=mat)
+    el1 = TrussElementNL(1, node1, node2, sec)
+    el2 = TrussElementNL(2, node2, node3, sec)
 
     struct = Structure()
     for n in [node1, node2, node3]:

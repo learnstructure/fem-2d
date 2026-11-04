@@ -13,12 +13,11 @@ I = 0.379389e-6  # m^4
 
 material = ElasticMaterial(E)
 from fem2d.sections import Section
-section = Section(A, I)
-
+section = Section(A, I, material=material)
 # 3. Create beam elements
-elem1 = BeamElement(1, node1, node2, material, section)
-elem2 = BeamElement(2, node2, node3, material, section)
-elem3 = BeamElement(3, node3, node1, material, section)
+elem1 = BeamElement(1, node1, node2, section)
+elem2 = BeamElement(2, node2, node3, section)
+elem3 = BeamElement(3, node3, node1, section)
 
 # 4. Build structure
 structure = Structure()

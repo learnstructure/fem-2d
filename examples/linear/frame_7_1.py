@@ -24,15 +24,14 @@ E = 200e6  # kN/m^2
 A = 6500e-6  # m^2
 I = 150e-6  # m^4
 material = ElasticMaterial(E)  # same material for all elements
-section = Section(A, I)
-
+section = Section(A, I, material=material)
 # 3. Create elements
 # BeamElement natively supports end hinges/releases via hinge_i / hinge_j or releases_i / releases_j:
-elem1 = BeamElement(1, node1, node2, material, section, hinge_j=True)
+elem1 = BeamElement(1, node1, node2, section, hinge_j=True)
 # Note: BeamWithHingesElement is also retained for backward compatibility:
-# elem1 = BeamWithHingesElement(1, node1, node2, material, section, hinge_j=True)
-elem2 = BeamElement(2, node2, node3, material, section)
-elem3 = BeamElement(3, node3, node4, material, section)
+# elem1 = BeamWithHingesElement(1, node1, node2, section, hinge_j=True)
+elem2 = BeamElement(2, node2, node3, section)
+elem3 = BeamElement(3, node3, node4, section)
 
 # 4. Create structure and add nodes/elements
 structure = Structure()

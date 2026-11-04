@@ -98,13 +98,12 @@ def main() -> None:
 
     steel     = ElasticMaterial(E=200.0e9)
     aluminium = ElasticMaterial(E=70.0e9)
-    col_sec   = Section(area=1.0e-3, moi=1.0e-6)
+    col_sec   = Section(area=1.0e-3, moi=1.0e-6, material=steel)
     # struct_core.GeneralSection requires Iz > 0; pass a tiny positive I.
-    truss_sec = Section(area=2.0e-4, moi=1.0e-12)
-
+    truss_sec = Section(area=2.0e-4, moi=1.0e-12, material=aluminium)
     from fem2d.elements.beam import BeamElement
-    frame2.add_element(BeamElement(1, n_root, n_tip, steel, col_sec))
-    frame2.add_element(TrussElement(2, n_tip, n_anc, aluminium, truss_sec))
+    frame2.add_element(BeamElement(1, n_root, n_tip, col_sec))
+    frame2.add_element(TrussElement(2, n_tip, n_anc, truss_sec))
     frame2.add_load(PointLoad(node=n_tip, fx=1.0e3, fy=0.0, mz=0.0))
     frame2.solve()
 
@@ -113,10 +112,10 @@ def main() -> None:
     print(f"\nTwo-material frame materials: {mats_2mat}")
     assert mats_2mat == ["M1", "M2"], f"Expected ['M1', 'M2'], got {mats_2mat}"
 
-    # Element 1 (column) should reference the first-encountered material.
-    assert sc_2mat.elements[0].material_id == "M1"
+    # Element 1 (column) should reference the first-encountered material, through its section.
+    assert sc_2mat.material_of(sc_2mat.elements[0]).id == "M1"
     # Element 2 (aluminium truss) should reference the second material.
-    assert sc_2mat.elements[1].material_id == "M2"
+    assert sc_2mat.material_of(sc_2mat.elements[1]).id == "M2"
 
     print("\nID assignment is stable across exports and follows first-encounter order.")
 

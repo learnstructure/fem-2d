@@ -20,7 +20,14 @@ class BeamWithHingesElement(BeamElement):
     """
 
     def __init__(
-        self, eid, node_i, node_j, material, section, hinge_i=False, hinge_j=False
+        self,
+        eid,
+        node_i,
+        node_j,
+        section,
+        hinge_i=False,
+        hinge_j=False,
+        include_shear_deformation=False,
     ):
         """
         Initialize a BeamWithHingesElement.
@@ -33,16 +40,24 @@ class BeamWithHingesElement(BeamElement):
             Start node.
         node_j : Node
             End node.
-        material : ElasticMaterial
-            Material definition.
         section : Section
-            Section definition.
+            Section definition (A, I and its ``material``).
         hinge_i : bool, optional
             Whether end i has a hinge. Defaults to False.
         hinge_j : bool, optional
             Whether end j has a hinge. Defaults to False.
+        include_shear_deformation : bool, optional
+            Whether to include Timoshenko shear deformation. Defaults to False.
         """
-        super().__init__(eid, node_i, node_j, material, section)
+        super().__init__(
+            eid,
+            node_i,
+            node_j,
+            section,
+            hinge_i=hinge_i,
+            hinge_j=hinge_j,
+            include_shear_deformation=include_shear_deformation,
+        )
         self.hinge_i = hinge_i
         self.hinge_j = hinge_j
 
@@ -55,7 +70,7 @@ class BeamWithHingesElement(BeamElement):
         numpy.ndarray
             6x6 local stiffness matrix.
         """
-        E = self.material.E
+        E = self.section.material.E
         A = self.area
         I = self.inertia
         L = self.length
@@ -66,7 +81,7 @@ class BeamWithHingesElement(BeamElement):
         EI_L = E * I / L
 
         k_beam = super().local_stiffness()
-        if not self.hinge_i and not self.hinge_j:       #if no hinges, return standard beam stiffness
+        if self.include_shear_deformation or (not self.hinge_i and not self.hinge_j):
             return k_beam
 
         if self.hinge_i and self.hinge_j:               #if both hinges, return zero for shear and moment DOFs
@@ -109,9 +124,9 @@ class BeamWithHingesElement(BeamElement):
             k_hinge_j[1, 2] = 3.0 * EI_L2
             k_hinge_j[1, 4] = -3.0 * EI_L3
 
-            k_hinge_j[2, 1] = 3.0 * EI_L3
+            k_hinge_j[2, 1] = 3.0 * EI_L2
             k_hinge_j[2, 2] = 3.0 * EI_L
-            k_hinge_j[2, 4] = -3.0 * EI_L2  
+            k_hinge_j[2, 4] = -3.0 * EI_L2
 
             k_hinge_j[4, 1] = -3.0 * EI_L3
             k_hinge_j[4, 2] = -3.0 * EI_L2

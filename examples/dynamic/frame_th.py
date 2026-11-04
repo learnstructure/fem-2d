@@ -19,11 +19,9 @@ material = ElasticMaterial(E)
 
 # Section properties
 # Beam: 20 in x 35 in
-beam_section = Section.from_rectangle(width=20, depth=35)
-
+beam_section = Section.from_rectangle(width=20, depth=35, material=material)
 # Column: 20 in x 20 in
-column_section = Section.from_rectangle(width=20, depth=20)
-
+column_section = Section.from_rectangle(width=20, depth=20, material=material)
 # -------------------------------------------------------------------
 # Build nodes
 # -------------------------------------------------------------------
@@ -55,14 +53,7 @@ for story in range(1, n_stories + 1):
 for story in range(1, n_stories + 1):
     left_node = nodes[2 * story]  # zero‑based: story1 -> nodes[2] and [3]
     right_node = nodes[2 * story + 1]
-    beam = BeamElement(
-        story,
-        left_node,
-        right_node,
-        material,
-        beam_section,
-        mass=0.0,  # no distributed mass
-    )
+    beam = BeamElement(story, left_node, right_node, beam_section, mass=0.0)  # no distributed mass
     structure.add_element(beam)
 
 # -------------------------------------------------------------------
@@ -72,27 +63,14 @@ for story in range(1, n_stories + 1):
 for story in range(n_stories):
     bottom_node = nodes[2 * story]
     top_node = nodes[2 * (story + 1)]
-    col = BeamElement(
-        n_stories + story + 1,
-        bottom_node,
-        top_node,
-        material,
-        column_section
-    )
+    col = BeamElement(n_stories + story + 1, bottom_node, top_node, column_section)
     structure.add_element(col)
 
 # Right columns
 for story in range(n_stories):
     bottom_node = nodes[2 * story + 1]
     top_node = nodes[2 * (story + 1) + 1]
-    col = BeamElement(
-        2 * n_stories + story + 1,
-        bottom_node,
-        top_node,
-        material,
-        column_section.A,
-        column_section.I,
-    )
+    col = BeamElement(2 * n_stories + story + 1, bottom_node, top_node, column_section)
     structure.add_element(col)
 
 # -------------------------------------------------------------------

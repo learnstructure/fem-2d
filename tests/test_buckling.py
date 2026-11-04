@@ -3,7 +3,7 @@ Tests for buckling analysis functionality.
 """
 
 import pytest
-from fem2d import Structure, Node, ElasticMaterial, BeamElement, TrussElementNL, buckling_analysis
+from fem2d import Structure, Node, ElasticMaterial, BeamElement, Section, TrussElementNL, buckling_analysis
 
 
 def test_frame_triangle_simple():
@@ -23,9 +23,10 @@ def test_frame_triangle_simple():
     material = ElasticMaterial(E)
 
     # 3. Create beam elements
-    elem1 = BeamElement(1, node1, node2, material, A, I)
-    elem2 = BeamElement(2, node2, node3, material, A, I)
-    elem3 = BeamElement(3, node3, node1, material, A, I)
+    section = Section(A, I, material=material)
+    elem1 = BeamElement(1, node1, node2, section)
+    elem2 = BeamElement(2, node2, node3, section)
+    elem3 = BeamElement(3, node3, node1, section)
 
     # 4. Build structure
     structure = Structure()

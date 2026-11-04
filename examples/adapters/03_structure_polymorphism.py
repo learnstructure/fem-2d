@@ -42,10 +42,10 @@ def build_raw_structure() -> Structure:
 
     # Materials & sections
     steel = ElasticMaterial(E=200e9, rho=7850.0)
-    beam_sec = Section.from_rectangle(width=0.05, depth=0.20)   # 50x200 mm
+    beam_sec = Section.from_rectangle(width=0.05, depth=0.20, material=steel)   # 50x200 mm
     # Truss section: pin-ended axial-only. struct_core.GeneralSection
     # requires Iz > 0, so we pass a tiny non-zero moment of inertia.
-    truss_sec = Section(area=2.0e-4, moi=1.0e-12)
+    truss_sec = Section(area=2.0e-4, moi=1.0e-12, material=steel)
 
     # Geometry: a vertical cantilever with a diagonal truss brace
     n_root = Node(nid=1, x=0.0, y=0.0)
@@ -60,10 +60,8 @@ def build_raw_structure() -> Structure:
     structure.add_node(n_tip)
     structure.add_node(n_anc)
 
-    beam = FemBeamElement(eid=1, node_i=n_root, node_j=n_tip,
-                          material=steel, section=beam_sec)
-    truss = TrussElement(eid=2, node_i=n_tip, node_j=n_anc,
-                         material=steel, section=truss_sec)
+    beam = FemBeamElement(eid=1, node_i=n_root, node_j=n_tip, section=beam_sec)
+    truss = TrussElement(eid=2, node_i=n_tip, node_j=n_anc, section=truss_sec)
 
     structure.add_element(beam)
     structure.add_element(truss)

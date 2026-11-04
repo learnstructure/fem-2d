@@ -82,7 +82,7 @@ fem-2d/
 | `fem2d.loads` | Concentrated loads, UDLs, and UVLs | `PointLoad`, `DistributedLoad`, `TriangularLoad`, `ElementPointLoad` |
 | `fem2d.elements` | 2D element stiffness and mass formulations | `BeamElement`, `BeamWithHingesElement`, `TrussElement`, `SpringElement` |
 | `fem2d.materials` | Material constitutive laws | `ElasticMaterial`, `BilinearMaterial`, `CSVMaterial` |
-| `fem2d.sections` | Cross-section geometry & fiber discretization | `Section`, `FiberSection`, `MomentCurvatureSection` |
+| `fem2d.sections` | Cross-section geometry & fiber discretization; a `Section` owns its `material`, and elements read it from the section | `Section`, `FiberSection`, `MomentCurvatureSection` |
 | `fem2d.solver` | Nonlinear iterative solvers | `NewtonRaphsonSolver` |
 | `fem2d.buckling_analysis` | Critical elastic buckling factors | `buckling_analysis` |
 | `fem2d.results` | Tabular output and pandas integration | `Results` |
@@ -179,12 +179,12 @@ E = 200e6              # Material modulus (kN/m^2)
 EA = 45155.0           # axial stiffness (kN)
 A = EA / E             # cross-sectional area (m^2)
 material = ElasticMaterial(E=E, nu=0.30, unit_weight=77.0)  # steel: 77 kN/m^3
-section = Section(A)
+section = Section(A, material=material)  # a section owns its material
 
 # Add linear truss elements (corotational path is enabled via solve below)
-structure.add_element(TrussElement(1, node1, node2, material, section))
-structure.add_element(TrussElement(2, node2, node3, material, section))
-structure.add_element(TrussElement(3, node3, node1, material, section))
+structure.add_element(TrussElement(1, node1, node2, section))
+structure.add_element(TrussElement(2, node2, node3, section))
+structure.add_element(TrussElement(3, node3, node1, section))
 
 # Support boundaries — compact (ux, uy) form
 node1.set_support(1, 1)  # pinned
@@ -235,16 +235,16 @@ Internal hinges and releases can be applied directly to `BeamElement` at either 
 from fem2d import BeamElement, BeamWithHingesElement
 
 # Moment release at end j (classical internal hinge)
-elem1 = BeamElement(1, node1, node2, material, section, hinge_j=True)
+elem1 = BeamElement(1, node1, node2, section, hinge_j=True)
 
 # Moment release at start end i
-elem2 = BeamElement(2, node2, node3, material, section, hinge_i=True)
+elem2 = BeamElement(2, node2, node3, section, hinge_i=True)
 
 # General 3-DOF release vector [u1, u2, theta] (consistent with fem3d)
-elem3 = BeamElement(3, node3, node4, material, section, releases_j=[False, False, True])
+elem3 = BeamElement(3, node3, node4, section, releases_j=[False, False, True])
 
 # Backward compatibility: BeamWithHingesElement is retained and fully supported
-elem4 = BeamWithHingesElement(4, node4, node5, material, section, hinge_j=True)
+elem4 = BeamWithHingesElement(4, node4, node5, section, hinge_j=True)
 ```
 
 ### 5. Timoshenko Beam Formulation (Shear Deformation)
@@ -273,16 +273,11 @@ structure.add_node(node2)
 # Material with shear modulus G derived from E and nu
 material = ElasticMaterial(E=29000.0, nu=0.3)
 
-# Rectangular section with shear area As automatically computed: As = (5/6) * b * h
-section = Section.from_rectangle(width=10.0, depth=25.0, include_shear_deformation=True)
+# Rectangular section of that material; shear area computed: As = (5/6) * b * h
+section = Section.from_rectangle(width=10.0, depth=25.0, material=material)
 
 # Define beam element with shear deformation enabled
-elem = BeamElement(
-    1, node1, node2,
-    material=material,
-    section=section,
-    include_shear_deformation=True,
-)
+elem = BeamElement(1, node1, node2, section, include_shear_deformation=True)
 structure.add_element(elem)
 node1.set_support(1, 1, 1)  # Fixed support
 node2.set_load(fy=-50.0)    # 50 kip tip load
@@ -346,7 +341,9 @@ effects, no global state. Naming follows `<artefact>_<direction>_<target>`:
 | --- | --- | --- |
 | `model_from_core` | `struct_core → fem2d` | Build a `fem2d.Structure` from a `struct_core.StructuralModel` (or `Project`), supporting individual load cases, factored load combinations, and automatic member self-weight calculation via `struct_load`. |
 | `model_to_core`   | `fem2d → struct_core` | Build a `struct_core.StructuralModel` from a `fem2d.Structure` / `SimpleFrame` / `Results`. |
-| `result_to_core`  | `fem2d → struct_core` | Build a `struct_core.AnalysisResult` from an analyzed `fem2d` model. |
+| `result_to_core`  | `fem2d → struct_core` | Build a `struct_core.AnalysisResult` from an analyzed `fem2d` model. Member internal forces (P, V, M) are reported at the 11 normalized `struct_core.analysis_result.STANDARD_STATIONS` (0, 0.1, …, 1), including the effect of uniform, trapezoidal, and concentrated member loads, so midspan moments reach design. |
+
+Distributed loads in `struct_core` are global (`wx`, `wy`) unless `is_local=True` (`w1`, `w2`); `model_from_core` rotates global loads into each member's local axes, so a global gravity load on a column acts axially.
 | `solve_combinations_and_envelope` | `struct_core → fem2d → struct_core` | Solve all factored load combinations and compile the governing max/min force envelope for design. |
 
 There is intentionally **no** `result_from_core` — round-tripping an
@@ -386,7 +383,7 @@ save_json(result, "static_result.json")
 
 #### 4.2 Build a struct_core model from a fem2d `Structure`
 
-`model_to_core` automatically maps the structure's `units` to the `StructuralModel.units` schema and places applied loads under `default_load_case_id="LIVE"` by default, keeping the `DEAD` case reserved for self-weight materialization:
+`model_to_core` automatically maps the structure's `units` to the `StructuralModel.units` schema and places applied loads under `default_load_case_id="LIVE"` by default, keeping the `DEAD` case reserved for self-weight materialization. Node masses and material mass densities are converted from fem2d's consistent units back to the model's mass unit (e.g. t/m³ → kg/m³ for kN, m), so a round trip keeps them:
 
 ```python
 from fem2d import SimpleFrame, model_to_core, result_to_core

@@ -125,6 +125,14 @@ class Structure:
                 for j, jj in enumerate(dofs):
                     self.K[ii, jj] += k_global[i, j]
 
+        # Add support spring stiffness contributions to diagonal
+        for node in self.nodes.values():
+            if hasattr(node, "springs") and any(node.springs):
+                for i, k_val in enumerate(node.springs):
+                    if k_val > 0.0:
+                        dof = node.dofs[i]
+                        self.K[dof, dof] += float(k_val)
+
     def assemble_loads(self):
         """Assemble the global force vector from nodal forces, point loads, and element equivalent loads."""
         self.F = np.zeros(self.neq)
@@ -155,6 +163,12 @@ class Structure:
         free = []
         for node in self.nodes.values():
             for i, fixed_flag in enumerate(node.support):
+                k_val = node.springs[i] if hasattr(node, "springs") else 0.0
+                if fixed_flag and k_val > 0.0:
+                    dof_name = ["ux", "uy", "rz"][i]
+                    raise ValueError(
+                        f"Node {node.id} DOF {dof_name} cannot be both restrained (fixed) and have a spring stiffness ({k_val})."
+                    )
                 if fixed_flag:
                     fixed.append(node.dofs[i])
                 else:
@@ -268,6 +282,17 @@ class Structure:
                 @ self.disp[self.free_dofs]
                 - self.F[self.fixed_dofs]
             )
+        # Add spring reactions (-k * u) at spring-supported DOFs
+        for node in self.nodes.values():
+            if hasattr(node, "springs") and any(node.springs):
+                for i, k_val in enumerate(node.springs):
+                    if k_val > 0.0:
+                        dof = node.dofs[i]
+                        self.reactions[dof] -= float(k_val) * self.disp[dof]
+
+        for el in self.elements.values():
+            if hasattr(el, "update_state"):
+                el.update_state(self.disp)
 
     def solve_nonlinear(self, tolerance=1e-8, max_iter=30, n_steps=1):
         """

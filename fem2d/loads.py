@@ -82,6 +82,10 @@ class ElementLoad:
         eq_local : numpy.ndarray
             6-component vector of equivalent loads in the element's local system.
         """
+        if hasattr(self.element, "add_equivalent_load"):
+            self.element.add_equivalent_load(eq_local)
+            return
+
         c = self.element.cos
         s = self.element.sin
         T = np.array(
@@ -102,13 +106,27 @@ class ElementLoad:
 
 class DistributedLoad(ElementLoad):
     """
-    Represents a uniformly distributed load acting on an element.
+    Represents a uniformly or linearly varying distributed load acting on an element
+    along a full or partial relative span [start, end].
     The load is defined in the element's local coordinate system:
-        wx: force per unit length along local x (axial)
-        wy: force per unit length along local y (transverse)
+        wx: force per unit length along local x (axial) at start
+        wy: force per unit length along local y (transverse) at start
+        wx_end: axial force intensity per unit length at end (defaults to wx)
+        wy_end: transverse force intensity per unit length at end (defaults to wy)
+        start: relative start position [0.0, 1.0] (defaults to 0.0)
+        end: relative end position [0.0, 1.0] (defaults to 1.0)
     """
 
-    def __init__(self, element, wx=0.0, wy=0.0):
+    def __init__(
+        self,
+        element,
+        wx: float = 0.0,
+        wy: float = 0.0,
+        wx_end: float = None,
+        wy_end: float = None,
+        start: float = 0.0,
+        end: float = 1.0,
+    ):
         """
         Initialize a DistributedLoad.
 
@@ -117,55 +135,63 @@ class DistributedLoad(ElementLoad):
         element : ElementBase
             The element to which the load is applied.
         wx : float, optional
-            Axial force intensity per unit length. Defaults to 0.0.
+            Axial force intensity per unit length at start. Defaults to 0.0.
         wy : float, optional
-            Transverse force intensity per unit length. Defaults to 0.0.
+            Transverse force intensity per unit length at start. Defaults to 0.0.
+        wx_end : float, optional
+            Axial force intensity at end. Defaults to wx.
+        wy_end : float, optional
+            Transverse force intensity at end. Defaults to wy.
+        start : float, optional
+            Relative start position along span [0, 1]. Defaults to 0.0.
+        end : float, optional
+            Relative end position along span [0, 1]. Defaults to 1.0.
         """
         super().__init__(element)
-        self.wx = wx
-        self.wy = wy
+        if start < 0.0 or end > 1.0 or start >= end:
+            raise ValueError(f"DistributedLoad relative span must satisfy 0 <= start < end <= 1, got start={start}, end={end}")
+
+        self.wx = float(wx)
+        self.wy = float(wy)
+        self.wx_end = float(wx if wx_end is None else wx_end)
+        self.wy_end = float(wy if wy_end is None else wy_end)
+        self.start = float(start)
+        self.end = float(end)
         self._compute_equivalent_loads()
 
     def _compute_equivalent_loads(self):
-        """Compute standard fixed-end forces for uniform load in local coordinates."""
+        """Compute work-equivalent nodal forces and moments via 3-point Gauss-Legendre quadrature."""
         L = self.element.length
-        #fixed end forces for uniform load in local coordinates
-        f0 = self.wx * L / 2
-        f1 = self.wy * L / 2
-        f2 = self.wy * L**2 / 12
-        f3 = self.wx * L / 2
-        f4 = self.wy * L / 2
-        f5 = -self.wy * L**2 / 12
+        eq_local = np.zeros(6, dtype=float)
+        gp = [-np.sqrt(0.6), 0.0, np.sqrt(0.6)]
+        gw = [5.0 / 9.0, 8.0 / 9.0, 5.0 / 9.0]
+        a = self.start * L
+        b = self.end * L
+        half_len = (b - a) / 2.0
+        mid = (a + b) / 2.0
 
-        eq_local = np.array(
-            [
-                f0,  # Axial force at node i
-                f1,  # Transverse force at node i
-                f2,  # Moment at node i
-                f3,  # Axial force at node j
-                f4,  # Transverse force at node j
-                f5,  # Moment at node j
-            ]
-        )
+        for xi, w in zip(gp, gw):
+            x = mid + half_len * xi
+            mu = x / L
+            alpha = (xi + 1.0) / 2.0
+            cur_wx = self.wx + alpha * (self.wx_end - self.wx)
+            cur_wy = self.wy + alpha * (self.wy_end - self.wy)
 
-        hinge_i = getattr(self.element, "hinge_i", False)
-        hinge_j = getattr(self.element, "hinge_j", False)
-        if hinge_i or hinge_j:
-            if hinge_i and hinge_j:
-                eq_local[1] = f1 - (f2 + f5)/L  # Adjust transverse force at node i
-                eq_local[2] = 0.0
-                eq_local[4] = f4 + (f2 + f5)/L  # Adjust transverse force at node j
-                eq_local[5] = 0.0
-            elif hinge_i:
-                eq_local[1] = f1-f2*3/(2*L)  # Adjust transverse force at node i
-                eq_local[2] = 0.0
-                eq_local[4] = f4 + f2*3/(2*L)  # Adjust transverse force at node j
-                eq_local[5] = f5 - f2/2  # Adjust moment at node j
-            elif hinge_j:
-                eq_local[1] = f2-f5*3/(2*L)  # Adjust transverse force at node i
-                eq_local[2] = f2-f5/2  # Adjust moment at node i
-                eq_local[4] = f4 + f5*3/(2*L)
-                eq_local[5] = 0.0
+            n_ax1 = 1.0 - mu
+            n_ax2 = mu
+
+            n_tr1 = 1.0 - 3.0 * mu**2 + 2.0 * mu**3
+            n_tr2 = x * (1.0 - mu)**2
+            n_tr3 = 3.0 * mu**2 - 2.0 * mu**3
+            n_tr4 = x * (mu**2 - mu)
+
+            wt = w * half_len
+            eq_local[0] += wt * n_ax1 * cur_wx
+            eq_local[1] += wt * n_tr1 * cur_wy
+            eq_local[2] += wt * n_tr2 * cur_wy
+            eq_local[3] += wt * n_ax2 * cur_wx
+            eq_local[4] += wt * n_tr3 * cur_wy
+            eq_local[5] += wt * n_tr4 * cur_wy
 
         self._transform_and_store_equivalent_loads(eq_local)
 
@@ -230,25 +256,6 @@ class ElementPointLoad(ElementLoad):
         MBz += (self.mz * a) / L
 
         eq_local = np.array([FAx, FAy, MAz, FBx, FBy, MBz])
-
-        hinge_i = getattr(self.element, "hinge_i", False)
-        hinge_j = getattr(self.element, "hinge_j", False)
-        if hinge_i or hinge_j:
-            if hinge_i and hinge_j:
-                eq_local[1] = FAy - (MAz + MBz)/L  # Adjust transverse force at node i
-                eq_local[2] = 0.0
-                eq_local[4] = FBy + (MAz + MBz)/L
-                eq_local[5] = 0.0
-            elif hinge_i:
-                eq_local[1] = FAy - MAz*3/(2*L)  # Adjust transverse force at node i
-                eq_local[2] = 0.0
-                eq_local[4] = FBy + MAz*3/(2*L)  # Adjust transverse force at node j
-                eq_local[5] = MBz - MAz/2  # Adjust moment at node j
-            elif hinge_j:
-                eq_local[1] = FBy - MBz*3/(2*L)  # Adjust transverse force at node i
-                eq_local[2] = FBy - MBz/2  # Adjust moment at node i
-                eq_local[4] = FBy + MBz*3/(2*L)
-                eq_local[5] = 0.0
 
         self._transform_and_store_equivalent_loads(eq_local)
 

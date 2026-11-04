@@ -37,7 +37,8 @@ installed. The ``[ecosystem]`` extra pulls it in:
 
 from __future__ import annotations
 
-from typing import Optional, Union, TYPE_CHECKING
+import copy
+from typing import Any, Dict, Optional, Union, TYPE_CHECKING
 
 # --- struct_core -> fem2d direction: types are needed at module scope for
 # the public function signatures. Imported eagerly so introspection tools and
@@ -58,7 +59,7 @@ from struct_core import (
 from fem2d.elements.beam import BeamElement as _FemBeamElement
 from fem2d.elements.spring import SpringElement as _FemSpringElement
 from fem2d.elements.truss import TrussElement as _FemTrussElement
-from fem2d.loads import DistributedLoad, PointLoad
+from fem2d.loads import DistributedLoad, ElementPointLoad, PointLoad
 from fem2d.materials.bilinear import BilinearMaterial as _FemBilinearMaterial
 from fem2d.materials.elastic import ElasticMaterial as _FemElasticMaterial
 from fem2d.nodes import Node as _FemNode
@@ -96,6 +97,7 @@ def model_from_core(
     units: Optional[Union[str, Units, dict]] = None,
     gravity_accel: Optional[float] = None,
     include_shear_deformation: Optional[bool] = None,
+    flexural_stiffness_modifiers: Optional[Dict[Any, float]] = None,
 ) -> Structure:
     """
     Convert a struct_core ``StructuralModel`` (or ``Project``) into a fully
@@ -129,6 +131,9 @@ def model_from_core(
         Whether to consider shear deformation (Timoshenko beam theory) in beam elements.
         If None (default), reads `include_shear_deformation` from each `struct_core.BeamElement`.
         If True or False, overrides all beam elements in the model.
+    flexural_stiffness_modifiers : dict, optional
+        Multiplier on the moment of inertia per element ID (e.g. ACI 318 Table 6.6.3.1.1:
+        0.70 for columns, 0.35 for beams). Area and mass are not modified.
 
     Returns
     -------
@@ -145,8 +150,8 @@ def model_from_core(
 
     active_units = parse_units(
         units
-        or getattr(model_or_project, "units", None)
         or getattr(getattr(model_or_project, "metadata", None), "units", None)
+        or getattr(model_or_project, "units", None)
         or "kN, m"
     )
 
@@ -179,36 +184,41 @@ def model_from_core(
     for mat_schema in model.materials:
         rho_val = _convert_rho(mat_schema)
         uw_val = getattr(mat_schema, "unit_weight", None)
-        if isinstance(mat_schema, _ScElasticMaterial):
-            mat_obj = _FemElasticMaterial(E=mat_schema.E, rho=rho_val, unit_weight=uw_val)
+        if isinstance(mat_schema, _ScElasticMaterial):  # also concrete and rebar, elastic for analysis
+            mat_obj = _FemElasticMaterial(E=mat_schema.E, rho=rho_val, nu=mat_schema.nu, unit_weight=uw_val)
         elif isinstance(mat_schema, _ScBilinearMaterial):
-            mat_obj = _FemBilinearMaterial(
-                E=mat_schema.E, Et=mat_schema.Et, fy=mat_schema.fy, rho=rho_val
-            )
+            mat_obj = _FemBilinearMaterial(E=mat_schema.E, sigma_y=mat_schema.fy, E_t=mat_schema.Et, rho=rho_val)
         else:
-            mat_obj = _FemElasticMaterial(
-                E=getattr(mat_schema, "E", 200e9),
-                rho=rho_val,
-                unit_weight=uw_val,
-            )
+            raise TypeError(f"Material {mat_schema.id!r}: fem2d has no model for {type(mat_schema).__name__}")
         materials_map[mat_schema.id] = mat_obj
 
-    # 2. Convert Sections
+    # 2. Convert Sections (each with its material)
     sections_map = {}
     for sec_schema in model.sections:
+        if sec_schema.material_id not in materials_map:
+            raise ValueError(f"Section {sec_schema.id!r} references missing material {sec_schema.material_id!r}")
+        material = materials_map[sec_schema.material_id]
         if isinstance(sec_schema, _ScRectangularSection):
-            sec_obj = _FemSection.from_rectangle(width=sec_schema.b, depth=sec_schema.h)
+            sec_obj = _FemSection.from_rectangle(width=sec_schema.b, depth=sec_schema.h, material=material)
         elif isinstance(sec_schema, _ScCircularSection):
-            sec_obj = _FemSection.from_circle(diameter=sec_schema.d)
+            sec_obj = _FemSection.from_circle(diameter=sec_schema.d, material=material)
         elif isinstance(sec_schema, _ScGeneralSection):
-            as_val = getattr(sec_schema, "As2", getattr(sec_schema, "as2", getattr(sec_schema, "Ay", None)))
-            sec_obj = _FemSection(area=sec_schema.A, moi=sec_schema.I3, As=as_val)
-        else:
-            sec_obj = _FemSection(
-                area=getattr(sec_schema, "A", 1.0),
-                moi=getattr(sec_schema, "I3", 1.0),
-                As=getattr(sec_schema, "As2", None),
+            needs_shear = (
+                include_shear_deformation is True
+                or any(
+                    getattr(e, "include_shear_deformation", False)
+                    for e in model.elements
+                    if getattr(e, "section_id", None) == sec_schema.id
+                )
             )
+            if needs_shear and sec_schema.As2 is None:
+                raise ValueError(
+                    f"Section {sec_schema.id!r} is a GeneralSection without shear area 'As2', but "
+                    f"shear deformation was requested. Specify 'As2' on the section or disable shear deformation."
+                )
+            sec_obj = _FemSection(area=sec_schema.A, moi=sec_schema.I3, As=sec_schema.As2, material=material)
+        else:
+            raise TypeError(f"Section {sec_schema.id!r}: fem2d has no model for {type(sec_schema).__name__}")
         sections_map[sec_schema.id] = sec_obj
 
     # 3. Convert Nodes
@@ -230,6 +240,19 @@ def model_from_core(
                 uy_fixed=sup_schema.uy,
                 rz_fixed=sup_schema.rz,
             )
+            kx = float(getattr(sup_schema, "kx", 0.0) or 0.0)
+            ky = float(getattr(sup_schema, "ky", 0.0) or 0.0)
+            krz = float(getattr(sup_schema, "krz", 0.0) or 0.0)
+            kz = float(getattr(sup_schema, "kz", 0.0) or 0.0)
+            krx = float(getattr(sup_schema, "krx", 0.0) or 0.0)
+            kry = float(getattr(sup_schema, "kry", 0.0) or 0.0)
+            if kz > 0.0 or krx > 0.0 or kry > 0.0:
+                raise ValueError(
+                    f"Support at node {sup_schema.node_id!r} specifies 3D spring components (kz={kz}, krx={krx}, kry={kry}) "
+                    f"in a 2D model."
+                )
+            if kx > 0.0 or ky > 0.0 or krz > 0.0:
+                node_obj.set_springs(kx=kx, ky=ky, krz=krz)
 
     # 5. Convert Elements
     for elem_schema in model.elements:
@@ -245,40 +268,72 @@ def model_from_core(
             continue
 
         if elem_type == "truss":
-            mat = materials_map[elem_schema.material_id]
             sec = sections_map[elem_schema.section_id]
             elem_obj = _FemTrussElement(
                 eid=elem_schema.id,
                 node_i=node_i,
                 node_j=node_j,
-                material=mat,
                 section=sec,
             )
         elif elem_type == "beam":
-            mat = materials_map[elem_schema.material_id]
             sec = sections_map[elem_schema.section_id]
+            elem_mods = getattr(elem_schema, "stiffness_modifiers", None)
+            if elem_mods or (flexural_stiffness_modifiers and elem_schema.id in flexural_stiffness_modifiers):
+                sec = copy.copy(sec)
+                if elem_mods:
+                    if "A" in elem_mods:
+                        sec.A *= float(elem_mods["A"])
+                    if "I" in elem_mods:
+                        sec.I *= float(elem_mods["I"])
+                    elif "I3" in elem_mods:
+                        sec.I *= float(elem_mods["I3"])
+                    if "As" in elem_mods and hasattr(sec, "As"):
+                        sec.As *= float(elem_mods["As"])
+                    elif "As2" in elem_mods and hasattr(sec, "As"):
+                        sec.As *= float(elem_mods["As2"])
+                if flexural_stiffness_modifiers and elem_schema.id in flexural_stiffness_modifiers:
+                    sec.I *= float(flexural_stiffness_modifiers[elem_schema.id])
             elem_shear = (
                 include_shear_deformation
                 if include_shear_deformation is not None
                 else getattr(elem_schema, "include_shear_deformation", False)
             )
+            rel_i = getattr(elem_schema, "release_i", None)
+            rel_j = getattr(elem_schema, "release_j", None)
+            releases_i_2d = None
+            releases_j_2d = None
+            # Member local axes: [u1 (axial P), u2 (shear V2), r3 (moment M3)] mapped from 6-DOF [u1, u2, u3, r1, r2, r3]
+            if rel_i is not None and any(rel_i):
+                releases_i_2d = [bool(rel_i[0]), bool(rel_i[1]), bool(rel_i[5] if len(rel_i) >= 6 else rel_i[2])]
+            if rel_j is not None and any(rel_j):
+                releases_j_2d = [bool(rel_j[0]), bool(rel_j[1]), bool(rel_j[5] if len(rel_j) >= 6 else rel_j[2])]
+
             elem_obj = _FemBeamElement(
                 eid=elem_schema.id,
                 node_i=node_i,
                 node_j=node_j,
-                material=mat,
                 section=sec,
                 geometric_nonlinear=elem_schema.is_nonlinear,
                 include_shear_deformation=elem_shear,
+                releases_i=releases_i_2d,
+                releases_j=releases_j_2d,
             )
         elif elem_type == "spring":
+            nonzero = [(name, val) for name, val in [("kx", elem_schema.kx), ("ky", elem_schema.ky), ("kz", elem_schema.kz)] if val > 0]
+            if not nonzero:
+                raise ValueError(f"Spring element '{elem_schema.id}' has zero stiffness (kx=ky=kz=0).")
+            if len(nonzero) > 1:
+                names = [n for n, _ in nonzero]
+                raise ValueError(
+                    f"fem2d SpringElement '{elem_schema.id}' specifies multiple directional stiffnesses ({', '.join(names)}). "
+                    f"fem2d supports 1D axial spring elements along the member axis; define separate 1D spring elements for each direction."
+                )
+            stiffness = nonzero[0][1]
             elem_obj = _FemSpringElement(
                 eid=elem_schema.id,
                 node_i=node_i,
                 node_j=node_j,
-                kx=elem_schema.kx,
-                ky=elem_schema.ky,
-                kz=elem_schema.kz,
+                stiffness=stiffness,
             )
         else:
             raise ValueError(f"Unsupported element type: '{elem_type}'")
@@ -318,6 +373,46 @@ def model_from_core(
 
     sw_cache = {}
 
+    def _to_fem_distributed_load(elem_obj, dl_schema, factor: float = 1.0) -> DistributedLoad:
+        """Map a struct_core DistributedLoad onto fem2d's local (axial, transverse) components.
+
+        struct_core stores global components (wx, wy) unless ``is_local`` is set, in which case
+        (w1, w2) are already local. fem2d.DistributedLoad is always local, so global loads are
+        rotated: w_axial = wx*c + wy*s, w_transverse = -wx*s + wy*c.
+        """
+        if getattr(dl_schema, "is_local", False):
+            w_axial = float(dl_schema.w1 or 0.0)
+            w_trans = float(dl_schema.w2 or 0.0)
+            w1_e = getattr(dl_schema, "w1_end", None)
+            w2_e = getattr(dl_schema, "w2_end", None)
+            w_axial_end = float(w_axial if w1_e is None else w1_e)
+            w_trans_end = float(w_trans if w2_e is None else w2_e)
+        else:
+            gx = float(dl_schema.wx or 0.0)
+            gy = float(dl_schema.wy or 0.0)
+            gx_e = getattr(dl_schema, "wx_end", None)
+            gy_e = getattr(dl_schema, "wy_end", None)
+            gx_end = float(gx if gx_e is None else gx_e)
+            gy_end = float(gy if gy_e is None else gy_e)
+            c = getattr(elem_obj, "cos", 1.0)
+            s = getattr(elem_obj, "sin", 0.0)
+            w_axial = gx * c + gy * s
+            w_trans = -gx * s + gy * c
+            w_axial_end = gx_end * c + gy_end * s
+            w_trans_end = -gx_end * s + gy_end * c
+
+        st = float(getattr(dl_schema, "start", 0.0) or 0.0)
+        en = float(getattr(dl_schema, "end", 1.0) or 1.0)
+        return DistributedLoad(
+            element=elem_obj,
+            wx=w_axial * factor,
+            wy=w_trans * factor,
+            wx_end=w_axial_end * factor,
+            wy_end=w_trans_end * factor,
+            start=st,
+            end=en,
+        )
+
     def _apply_case_self_weight_2d(case_id: str, factor: float = 1.0):
         if not include_self_weight:
             return
@@ -353,11 +448,7 @@ def model_from_core(
                     structure.add_load(PointLoad(elem_obj.node_i, fy=-0.5 * total_w))
                     structure.add_load(PointLoad(elem_obj.node_j, fy=-0.5 * total_w))
                 else:
-                    c = getattr(elem_obj, "cos", 1.0)
-                    s = getattr(elem_obj, "sin", 0.0)
-                    wx_loc = -w_mag * factor * s
-                    wy_loc = -w_mag * factor * c
-                    structure.add_load(DistributedLoad(element=elem_obj, wx=wx_loc, wy=wy_loc))
+                    structure.add_load(_to_fem_distributed_load(elem_obj, dl, factor))
 
     target_comb = None
     if load_combination_id is not None:
@@ -375,7 +466,7 @@ def model_from_core(
             lc = load_cases_map.get(factor_obj.load_case_id)
             if not lc:
                 raise KeyError(
-                    f"Load combination '{combination_id}' references unknown load case '{factor_obj.load_case_id}'."
+                    f"Load combination '{target_comb.id}' references unknown load case '{factor_obj.load_case_id}'."
                 )
             factor = factor_obj.factor
             for pl_schema in lc.point_loads:
@@ -392,13 +483,24 @@ def model_from_core(
             for dl_schema in lc.element_loads:
                 if dl_schema.element_id in structure.elements:
                     elem_obj = structure.elements[dl_schema.element_id]
-                    structure.add_load(
-                        DistributedLoad(
-                            element=elem_obj,
-                            wx=dl_schema.wx * factor,
-                            wy=dl_schema.wy * factor,
-                        )
-                    )
+                    structure.add_load(_to_fem_distributed_load(elem_obj, dl_schema, factor))
+            for epl_schema in getattr(lc, "element_point_loads", []):
+                if epl_schema.element_id in structure.elements:
+                    elem_obj = structure.elements[epl_schema.element_id]
+                    pos = float(getattr(epl_schema, "position", 0.0)) * elem_obj.length
+                    if getattr(epl_schema, "is_local", False):
+                        px = float(getattr(epl_schema, "fx", 0.0)) * factor
+                        py = float(getattr(epl_schema, "fy", 0.0)) * factor
+                        mz = float(getattr(epl_schema, "mz", 0.0)) * factor
+                    else:
+                        gx = float(getattr(epl_schema, "fx", 0.0)) * factor
+                        gy = float(getattr(epl_schema, "fy", 0.0)) * factor
+                        mz = float(getattr(epl_schema, "mz", 0.0)) * factor
+                        c = getattr(elem_obj, "cos", 1.0)
+                        s = getattr(elem_obj, "sin", 0.0)
+                        px = gx * c + gy * s
+                        py = -gx * s + gy * c
+                    structure.add_load(ElementPointLoad(element=elem_obj, px=px, py=py, mz=mz, x=pos))
             if getattr(lc, "include_self_weight", False):
                 _apply_case_self_weight_2d(lc.id, factor=factor)
     else:
@@ -439,16 +541,27 @@ def model_from_core(
                     )
                     structure.add_load(load_obj)
 
-            loads_list = list(getattr(target_load_case, "element_loads", []) or getattr(target_load_case, "distributed_loads", []))
-            for dl_schema in loads_list:
+            for dl_schema in target_load_case.element_loads:
                 if dl_schema.element_id in structure.elements:
                     elem_obj = structure.elements[dl_schema.element_id]
-                    dist_load_obj = DistributedLoad(
-                        element=elem_obj,
-                        wx=float(getattr(dl_schema, "wx", 0.0) or 0.0),
-                        wy=float(getattr(dl_schema, "wy", 0.0) or 0.0),
-                    )
-                    structure.add_load(dist_load_obj)
+                    structure.add_load(_to_fem_distributed_load(elem_obj, dl_schema))
+            for epl_schema in getattr(target_load_case, "element_point_loads", []):
+                if epl_schema.element_id in structure.elements:
+                    elem_obj = structure.elements[epl_schema.element_id]
+                    pos = float(getattr(epl_schema, "position", 0.0)) * elem_obj.length
+                    if getattr(epl_schema, "is_local", False):
+                        px = float(getattr(epl_schema, "fx", 0.0))
+                        py = float(getattr(epl_schema, "fy", 0.0))
+                        mz = float(getattr(epl_schema, "mz", 0.0))
+                    else:
+                        gx = float(getattr(epl_schema, "fx", 0.0))
+                        gy = float(getattr(epl_schema, "fy", 0.0))
+                        mz = float(getattr(epl_schema, "mz", 0.0))
+                        c = getattr(elem_obj, "cos", 1.0)
+                        s = getattr(elem_obj, "sin", 0.0)
+                        px = gx * c + gy * s
+                        py = -gx * s + gy * c
+                    structure.add_load(ElementPointLoad(element=elem_obj, px=px, py=py, mz=mz, x=pos))
 
             if getattr(target_load_case, "include_self_weight", False):
                 _apply_case_self_weight_2d(target_load_case.id, factor=1.0)
@@ -481,11 +594,11 @@ def _resolve_structure(obj) -> Structure:
     )
 
 
-def _make_sc_distributed_load(*, element_id, wx: float, wy: float):
-    """Build a ``struct_core.DistributedLoad`` (lazy-imported)."""
+def _make_sc_distributed_load(*, element_id, w_axial: float, w_transverse: float):
+    """Build a local-axis ``struct_core.DistributedLoad`` from fem2d's local (axial, transverse) load."""
     from struct_core import DistributedLoad as ScDistributedLoad
 
-    return ScDistributedLoad(element_id=element_id, wx=wx, wy=wy, is_local=False)
+    return ScDistributedLoad(element_id=element_id, w1=w_axial, w2=w_transverse, is_local=True)
 
 
 def model_to_core(
@@ -494,10 +607,10 @@ def model_to_core(
     units: Optional[Union[str, Any, dict]] = None,
     default_load_case_id: str = "LIVE",
     validate: bool = True,
-) -> StructuralModel:
+) -> Project:
     """
     Convert a ``fem2d.Structure`` (or ``SimpleFrame`` / ``Results`` wrapper)
-    into a ``struct_core.StructuralModel``.
+    into a ``struct_core.Project``.
 
     Parameters
     ----------
@@ -514,8 +627,8 @@ def model_to_core(
 
     Returns
     -------
-    struct_core.StructuralModel
-        A validated Pydantic model representing the fem2d input.
+    struct_core.Project
+        A project instance wrapping the structural model and units metadata.
     """
     try:
         from struct_core import (
@@ -540,26 +653,22 @@ def model_to_core(
         ) from exc
 
     structure = _resolve_structure(obj)
+    # Masses and mass densities: consistent units in fem2d, the model's mass unit in struct_core
+    from struct_core import Metadata
+    units_spec = units or getattr(structure, "units", None)
+    target_units = (parse_units(units_spec) if isinstance(units_spec, (str, dict)) else units_spec) or Metadata().units
+    mass_factor = target_units.consistent_mass_factor
 
     # ---- Materials (deduplicated by properties, not by Python object id) ---
     def _material_key(fem_mat) -> tuple:
         """Hashable key for material deduplication."""
         if isinstance(fem_mat, _FemBilinearMaterial):
-            return (
-                "bilinear",
-                round(float(fem_mat.E), 12),
-                round(float(getattr(fem_mat, "Et", fem_mat.E * 0.01)), 12),
-                round(float(getattr(fem_mat, "fy", float("nan"))), 12),
-                round(float(getattr(fem_mat, "rho", 0.0)), 12),
-                getattr(fem_mat, "unit_weight", None),
-            )
-        # Default: treat as elastic.
-        return (
-            "elastic",
-            round(float(fem_mat.E), 12),
-            round(float(getattr(fem_mat, "rho", 0.0)), 12),
-            getattr(fem_mat, "unit_weight", None),
-        )
+            return ("bilinear", round(float(fem_mat.E), 12), round(float(fem_mat.E_t), 12),
+                    round(float(fem_mat.sigma_y), 12), round(float(fem_mat.rho), 12))
+        if not isinstance(fem_mat, _FemElasticMaterial):
+            raise TypeError(f"struct_core has no schema for the fem2d material {type(fem_mat).__name__}")
+        return ("elastic", round(float(fem_mat.E), 12), round(float(fem_mat.nu), 12), round(float(fem_mat.rho), 12),
+                fem_mat.unit_weight)
 
     def _section_key(fem_sec) -> tuple:
         """Hashable key for section deduplication."""
@@ -568,12 +677,15 @@ def model_to_core(
         As = getattr(fem_sec, "As", None)
         return (round(A, 12), round(I, 12), round(float(As), 12) if As is not None else None)
 
+    # Springs have no physical section or material; they export their stiffness only
+    framed = [elem for elem in structure.elements.values() if type(elem).__name__ != "SpringElement"]
+
     sc_materials: list = []
     materials_map: dict = {}  # material_key -> sc_id
     mat_counter = 0
 
-    for elem in structure.elements.values():
-        fem_mat = elem.material
+    for elem in framed:
+        fem_mat = elem.section.material
         key = _material_key(fem_mat)
         if key in materials_map:
             continue
@@ -584,10 +696,9 @@ def model_to_core(
                 ScBilinearMaterial(
                     id=sc_id,
                     E=float(fem_mat.E),
-                    Et=float(getattr(fem_mat, "Et", fem_mat.E * 0.01)),
-                    fy=float(getattr(fem_mat, "fy", float("nan"))),
-                    rho=float(getattr(fem_mat, "rho", 0.0)),
-                    unit_weight=getattr(fem_mat, "unit_weight", None),
+                    Et=float(fem_mat.E_t),
+                    fy=float(fem_mat.sigma_y),
+                    rho=float(fem_mat.rho) / mass_factor,
                 )
             )
         else:
@@ -595,20 +706,22 @@ def model_to_core(
                 ScElasticMaterial(
                     id=sc_id,
                     E=float(fem_mat.E),
-                    rho=float(getattr(fem_mat, "rho", 0.0)),
-                    unit_weight=getattr(fem_mat, "unit_weight", None),
+                    nu=float(fem_mat.nu),
+                    rho=float(fem_mat.rho) / mass_factor,
+                    unit_weight=fem_mat.unit_weight,
                 )
             )
         materials_map[key] = sc_id
 
-    # ---- Sections (deduplicated by A, I, As) -------------------------------
+    # ---- Sections (deduplicated by A, I, As and material) -----------------
     sc_sections: list = []
-    sections_map: dict = {}  # section_key -> sc_id
+    sections_map: dict = {}  # (section_key, material id) -> sc_id
     sec_counter = 0
 
-    for elem in structure.elements.values():
+    for elem in framed:
         fem_sec = elem.section
-        key = _section_key(fem_sec)
+        mat_id = materials_map[_material_key(elem.section.material)]
+        key = (_section_key(fem_sec), mat_id)
         if key in sections_map:
             continue
         sec_counter += 1
@@ -617,7 +730,8 @@ def model_to_core(
         I = float(getattr(fem_sec, "I", getattr(fem_sec, "moi", 0.0)))
         As = getattr(fem_sec, "As", None)
         as_float = float(As) if As is not None else None
-        sc_sections.append(ScGeneralSection(id=sc_id, A=A, I3=I, I2=I, J=2 * I if I > 0 else 1.0, As2=as_float, As3=as_float))
+        sc_sections.append(ScGeneralSection(id=sc_id, material_id=mat_id, A=A, I3=I, I2=I, J=2 * I if I > 0 else 1.0,
+                                            As2=as_float, As3=as_float))
         sections_map[key] = sc_id
 
     # ---- Nodes ------------------------------------------------------------
@@ -629,17 +743,17 @@ def model_to_core(
                 x=float(node.x),
                 y=float(node.y),
                 z=0.0,
-                mass=float(getattr(node, "mass", 0.0)),
-                inertia=float(getattr(node, "inertia", 0.0)),
+                mass=float(getattr(node, "mass", 0.0)) / mass_factor,
+                inertia=float(getattr(node, "inertia", 0.0)) / mass_factor,
             )
         )
 
     # ---- Elements ---------------------------------------------------------
     sc_elements = []
     for eid, elem in structure.elements.items():
-        mat_id = materials_map[_material_key(elem.material)]
-        sec_id = sections_map[_section_key(elem.section)]
         cls_name = type(elem).__name__
+        if cls_name != "SpringElement":
+            sec_id = sections_map[(_section_key(elem.section), materials_map[_material_key(elem.section.material)])]
 
         if cls_name in (
             "BeamElement",
@@ -649,15 +763,16 @@ def model_to_core(
         ):
             rel_i = list(getattr(elem, "releases_i", [False, False, getattr(elem, "hinge_i", False)]))
             rel_j = list(getattr(elem, "releases_j", [False, False, getattr(elem, "hinge_j", False)]))
+            rel_i_6d = [bool(rel_i[0]), bool(rel_i[1]), False, False, False, bool(rel_i[2])] if len(rel_i) >= 3 else [False]*6
+            rel_j_6d = [bool(rel_j[0]), bool(rel_j[1]), False, False, False, bool(rel_j[2])] if len(rel_j) >= 3 else [False]*6
             sc_elements.append(
                 ScBeamElement(
                     id=eid,
                     start_node=elem.node_i.id,
                     end_node=elem.node_j.id,
-                    material_id=mat_id,
                     section_id=sec_id,
-                    release_i=rel_i,
-                    release_j=rel_j,
+                    release_i=rel_i_6d,
+                    release_j=rel_j_6d,
                     is_nonlinear=bool(getattr(elem, "geometric_nonlinear", False)),
                     include_shear_deformation=bool(getattr(elem, "include_shear_deformation", False)),
                 )
@@ -668,7 +783,6 @@ def model_to_core(
                     id=eid,
                     start_node=elem.node_i.id,
                     end_node=elem.node_j.id,
-                    material_id=mat_id,
                     section_id=sec_id,
                 )
             )
@@ -678,9 +792,7 @@ def model_to_core(
                     id=eid,
                     start_node=elem.node_i.id,
                     end_node=elem.node_j.id,
-                    kx=float(getattr(elem, "kx", 0.0)),
-                    ky=float(getattr(elem, "ky", 0.0)),
-                    kz=float(getattr(elem, "kz", 0.0)),
+                    kx=float(getattr(elem, "k", 0.0)),
                 )
             )
         else:  # pragma: no cover - defensive default
@@ -693,13 +805,17 @@ def model_to_core(
     sc_supports = []
     for nid, node in structure.nodes.items():
         sup = getattr(node, "support", None) or [False, False, False]
+        springs = getattr(node, "springs", None) or [0.0, 0.0, 0.0]
         if isinstance(sup, (list, tuple)) and len(sup) >= 3:
             ux_fixed, uy_fixed, rz_fixed = bool(sup[0]), bool(sup[1]), bool(sup[2])
         else:  # pragma: no cover
             ux_fixed = uy_fixed = rz_fixed = False
-        if ux_fixed or uy_fixed or rz_fixed:
+        kx = float(springs[0]) if len(springs) > 0 else 0.0
+        ky = float(springs[1]) if len(springs) > 1 else 0.0
+        krz = float(springs[2]) if len(springs) > 2 else 0.0
+        if ux_fixed or uy_fixed or rz_fixed or kx > 0.0 or ky > 0.0 or krz > 0.0:
             sc_supports.append(
-                ScSupport(node_id=nid, ux=ux_fixed, uy=uy_fixed, rz=rz_fixed)
+                ScSupport(node_id=nid, ux=ux_fixed, uy=uy_fixed, rz=rz_fixed, kx=kx, ky=ky, krz=krz)
             )
 
     # ---- Loads ------------------------------------------------------------
@@ -721,8 +837,8 @@ def model_to_core(
             sc_element_loads.append(
                 _make_sc_distributed_load(
                     element_id=load_obj.element.id,
-                    wx=float(getattr(load_obj, "wx", 0.0)),
-                    wy=float(getattr(load_obj, "wy", 0.0)),
+                    w_axial=float(load_obj.wx),
+                    w_transverse=float(load_obj.wy),
                 )
             )
 
@@ -754,6 +870,8 @@ def model_to_core(
         )
 
     model = StructuralModel(
+        dimension="2D",
+        vertical_axis="Y",
         nodes=sc_nodes,
         elements=sc_elements,
         materials=sc_materials,
@@ -763,14 +881,11 @@ def model_to_core(
         analysis_cases=sc_analysis_cases,
     )
 
-    units_spec = units or getattr(structure, "units", None)
-    if units_spec is not None:
-        model.units = parse_units(units_spec) if isinstance(units_spec, (str, dict)) else units_spec
-
     if validate:
         validate_structural_model(model, raise_error=True)
 
-    return model
+    from struct_core import Metadata, Project
+    return Project(model=model, metadata=Metadata(units=target_units))
 
 
 def _build_node_displacement(ux: float, uy: float, theta: float):
@@ -787,19 +902,71 @@ def _build_node_reaction(fx: float, fy: float, mz: float):
     return NodeReaction(fx=fx, fy=fy, fz=0.0, mx=0.0, my=0.0, mz=mz)
 
 
-def _build_section_force(station: float, axial: float, shear: float, moment: float):
-    """Lazy import wrapper for ``struct_core.BeamSectionForce``."""
-    from struct_core import BeamSectionForce
+def _member_stations(length: float, f_i: tuple, loads: list) -> list:
+    """Internal forces at STANDARD_STATIONS from the start-node end forces and the member's loads.
 
-    return BeamSectionForce(
-        station=station,
-        P=axial,
-        V2=shear,
-        V3=0.0,
-        T=0.0,
-        M2=0.0,
-        M3=moment,
-    )
+    ``f_i`` = (fx, fy, mz) are the local forces the start node exerts on the member. Equilibrium of
+    the segment [0, x] with local member loads (uniform/trapezoidal/partial ``wx``, ``wy`` and concentrated
+    ``px``, ``py``, ``mz`` at distance a) gives the actions on its cut face:
+        P(x) = -(fx + Wx(x) + sum px)      V(x) = -(fy + Wy(x) + sum py)
+        M(x) = -mz + fy x + Mw(x) + sum[py (x - a) - mz_p]
+    where Wy(x) is the load resultant over [0, x] and Mw(x) its moment about the cut.
+    At x = L these equal the end forces at node j.
+    """
+    from struct_core import BeamSectionForce
+    from struct_core.analysis_result import STANDARD_STATIONS
+    from fem2d.loads import ElementPointLoad, TriangularLoad
+
+    fx, fy, mz = f_i
+    dist_loads = []
+    points = []
+    for load in loads:
+        if isinstance(load, DistributedLoad):
+            dist_loads.append(load)
+        elif isinstance(load, TriangularLoad):
+            class _TriWrapper:
+                start = 0.0
+                end = 1.0
+                wx = load.wx1
+                wx_end = load.wx2
+                wy = load.wy1
+                wy_end = load.wy2
+            dist_loads.append(_TriWrapper())
+        elif isinstance(load, ElementPointLoad):
+            points.append(load)
+        else:
+            raise TypeError(f"Unsupported member load {type(load).__name__} for internal force stations.")
+
+    stations = []
+    for s in STANDARD_STATIONS:
+        x = s * length
+        rx_total = 0.0
+        ry_total = 0.0
+        my_total = 0.0
+
+        for dl in dist_loads:
+            x1 = dl.start * length
+            x2 = dl.end * length
+            if x > x1 and x2 > x1:
+                x_cut = min(x, x2)
+                delta = x_cut - x1
+                l_span = x2 - x1
+                mx_slope = (dl.wx_end - dl.wx) / l_span
+                my_slope = (dl.wy_end - dl.wy) / l_span
+
+                rx_total += dl.wx * delta + 0.5 * mx_slope * delta**2
+                ry = dl.wy * delta + 0.5 * my_slope * delta**2
+                ry_total += ry
+                my_total += (x - x1) * ry - (0.5 * dl.wy * delta**2 + (1.0 / 3.0) * my_slope * delta**3)
+
+        acting = [p for p in points if p.x < x or (s == 1.0 and p.x <= length)]
+        stations.append(BeamSectionForce(
+            station=s,
+            P=-(fx + rx_total + sum(p.px for p in acting)),
+            V2=-(fy + ry_total + sum(p.py for p in acting)),
+            M3=-mz + fy * x + my_total + sum(p.py * (x - p.x) - p.mz for p in acting),
+        ))
+    return stations
 
 
 def result_to_core(
@@ -885,29 +1052,25 @@ def result_to_core(
         )
 
     # --- Element results ----------------------------------------------------
+    loads_by_element: dict = {}
+    for load in getattr(structure, "loads", []) or []:
+        el = getattr(load, "element", None)
+        if el is not None:
+            loads_by_element.setdefault(el.id, []).append(load)
+
     force_df = results.element_forces()
     element_results = {}
     for _, row in force_df.iterrows():
         eid = row["element"]
-        # Two stations per element: end i (station 0.0) and end j (station 1.0).
-        # fem2d reports local-coordinates forces; sign convention is preserved.
-        s_i = _build_section_force(
-            station=0.0,
-            axial=float(row["fx_i"]),
-            shear=float(row["fy_i"]),
-            moment=float(row["m_i"]),
+        stations = _member_stations(
+            structure.elements[eid].length,
+            (float(row["fx_i"]), float(row["fy_i"]), float(row["m_i"])),
+            loads_by_element.get(eid, []),
         )
-        s_j = _build_section_force(
-            station=1.0,
-            axial=float(row["fx_j"]),
-            shear=float(row["fy_j"]),
-            moment=float(row["m_j"]),
-        )
-        stations = [s_i, s_j]
-        # Envelopes: pick the station with the largest absolute magnitude.
-        max_axial = s_i.P if abs(s_i.P) >= abs(s_j.P) else s_j.P
-        max_shear = s_i.V2 if abs(s_i.V2) >= abs(s_j.V2) else s_j.V2
-        max_moment = s_i.M3 if abs(s_i.M3) >= abs(s_j.M3) else s_j.M3
+        # Envelopes: the station value with the largest absolute magnitude.
+        max_axial = max((s.P for s in stations), key=abs)
+        max_shear = max((s.V2 for s in stations), key=abs)
+        max_moment = max((s.M3 for s in stations), key=abs)
 
         element_results[eid] = ElementResult(
             element_id=eid,
@@ -946,7 +1109,7 @@ def solve_combinations_and_envelope(
     Tuple[Dict[str, AnalysisResult], AnalysisResult]
         (combination_results_dict, envelope_result)
     """
-    from struct_core import AnalysisResult, ElementResult, NodeResult
+    from struct_core.analysis_result import envelope_results
 
     if isinstance(model_or_project, Project):
         model = model_or_project.model
@@ -974,42 +1137,8 @@ def solve_combinations_and_envelope(
         res = result_to_core(struct, analysis_case_id=comb.id)
         comb_results[comb.id] = res
 
-    # Compute envelope across all combination results
-    envelope_elements = {}
-    first_res = next(iter(comb_results.values()))
-
-    for eid in first_res.element_results.keys():
-        all_elem_res = [cr.element_results[eid] for cr in comb_results.values() if eid in cr.element_results]
-        if not all_elem_res:
-            continue
-
-        max_p = max(all_elem_res, key=lambda er: abs(er.max_axial or 0.0)).max_axial
-        max_m = max(all_elem_res, key=lambda er: abs(er.max_moment or 0.0)).max_moment
-        max_v = max(all_elem_res, key=lambda er: abs(er.max_shear or 0.0)).max_shear
-
-        gov_elem = max(all_elem_res, key=lambda er: abs(er.max_moment or 0.0))
-        envelope_elements[eid] = ElementResult(
-            element_id=eid,
-            forces=gov_elem.forces,
-            max_axial=max_p,
-            max_moment=max_m,
-            max_shear=max_v,
-        )
-
-    envelope_nodes = {}
-    for nid in first_res.node_results.keys():
-        all_node_res = [cr.node_results[nid] for cr in comb_results.values() if nid in cr.node_results]
-        gov_node = max(
-            all_node_res,
-            key=lambda nr: (nr.displacement.ux**2 + nr.displacement.uy**2) if nr.displacement else 0.0,
-        )
-        envelope_nodes[nid] = gov_node
-
-    envelope_analysis_res = AnalysisResult(
-        analysis_case_id=envelope_case_id,
-        node_results=envelope_nodes,
-        element_results=envelope_elements,
-    )
+    # Governing envelope; per-combination station forces stay available to design
+    envelope_analysis_res = envelope_results(list(comb_results.values()), output_case_id=envelope_case_id)
 
     if isinstance(model_or_project, Project):
         for cid, cres in comb_results.items():
