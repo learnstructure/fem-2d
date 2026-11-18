@@ -822,6 +822,61 @@ def test_flexural_stiffness_modifiers_scale_bending_deflection():
     assert cracked.elements[1].section.A == gross.elements[1].section.A
 
 
+def test_element_stiffness_modifier_i3_scales_in_plane_bending():
+    """The struct_core key I3 (in-plane bending of a 2D model) is applied; the non-canonical keys I and As that fem2d
+    also accepted are refused by struct_core."""
+    from struct_core import PointLoad
+
+    def tip(mods):
+        model = StructuralModel(
+            nodes=[Node(id=1, x=0.0, y=0.0), Node(id=2, x=0.0, y=3.0)],
+            materials=[ElasticMaterial(id="Conc", E=3e7, rho=0.0)],
+            sections=[RectangularSection(id="C", material_id="Conc", b=0.4, h=0.4)],
+            elements=[BeamElement(id=1, start_node=1, end_node=2, section_id="C", stiffness_modifiers=mods)],
+            supports=[Support.fixed(node_id=1)],
+            load_cases=[LoadCase(id="H", point_loads=[PointLoad(node_id=2, fx=10.0)])],
+        )
+        structure = model_from_core(model, load_case_id="H")
+        structure.solve()
+        return structure.disp[structure.nodes[2].dofs[0]]
+
+    assert tip({"I3": 0.5}) == pytest.approx(2.0 * tip(None), rel=1e-9)
+    assert tip({"I2": 0.5, "J": 0.1}) == pytest.approx(tip(None), rel=1e-12)  # out-of-plane keys do not apply
+    with pytest.raises(ValueError, match="Unknown stiffness modifiers"):
+        BeamElement(id=1, start_node=1, end_node=2, section_id="C", stiffness_modifiers={"I": 0.5})
+
+
+def _cantilever_modes(stiffness_modifiers):
+    """(bending, axial) frequencies of a 4-element horizontal cantilever, the axial modes found by their shape."""
+    model = StructuralModel(
+        dimension="2D",
+        nodes=[Node(id=i, x=float(i), y=0.0) for i in range(5)],
+        materials=[ElasticMaterial(id="C", E=25e6, nu=0.2, unit_weight=24.0)],
+        sections=[RectangularSection(id="R", material_id="C", b=0.3, h=0.5)],
+        elements=[BeamElement(id=i, start_node=i, end_node=i + 1, section_id="R",
+                              stiffness_modifiers=stiffness_modifiers) for i in range(4)],
+        supports=[Support.fixed(node_id=0)],
+    )
+    structure = model_from_core(model, units="kN, m")
+    result = structure.modal_analysis(num_modes=12)
+    axial = np.abs(np.asarray(result["modes"])[structure.nodes[4].dofs[0], :]) > 0.99
+    frequencies = np.asarray(result["frequencies"])
+    return frequencies[~axial], frequencies[axial]
+
+
+def test_mass_and_area_modifiers_act_as_in_sap2000():
+    """SAP2000 27.1 (measured, struct_link tests): the mass modifier scales the mass only, the A modifier the axial
+    stiffness only. Regression: the mass modifier was ignored and the A modifier also scaled the element mass."""
+    bending, axial = _cantilever_modes(None)
+    bending_m, axial_m = _cantilever_modes({"mass": 0.5})
+    np.testing.assert_allclose(bending_m, bending * math.sqrt(2.0), rtol=1e-9)
+    np.testing.assert_allclose(axial_m, axial * math.sqrt(2.0), rtol=1e-9)
+    bending_a, axial_a = _cantilever_modes({"A": 0.5})
+    np.testing.assert_allclose(bending_a, bending, rtol=1e-9)
+    np.testing.assert_allclose(axial_a, axial / math.sqrt(2.0), rtol=1e-9)
+    assert len(axial) >= 1 and len(bending) >= 4
+
+
 def test_round_trip_keeps_masses_densities_and_bilinear_materials():
     """model_to_core wrote fem2d's consistent masses (t, t/m3) as model masses (kg, kg/m3), and read a bilinear
     material's E_t / sigma_y under names it does not have (Et = 0.01 E, fy = nan); model_from_core passed them to the

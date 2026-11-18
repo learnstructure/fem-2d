@@ -4,6 +4,70 @@ Loads module defining point, distributed, and varying loads for nodes and elemen
 
 import numpy as np
 
+_GAUSS_POINTS = (-np.sqrt(0.6), 0.0, np.sqrt(0.6))
+_GAUSS_WEIGHTS = (5.0 / 9.0, 8.0 / 9.0, 5.0 / 9.0)
+
+
+def bending_shape_functions(x, length, phi=0.0):
+    """Exact interpolation of a two-node Timoshenko beam at distance ``x`` from node i.
+
+    Returns ``(Nv, Npsi)``: the transverse displacement ``v(x)`` and the cross-section rotation ``psi(x)`` caused by
+    a unit value of each end DOF ``(v_i, theta_i, v_j, theta_j)`` with the others zero. They solve the unloaded
+    Timoshenko beam (EI psi'' + kGA (v' - psi) = 0, (v' - psi)' = 0), so they are the exact deflected shapes of the
+    element whose stiffness uses the same shear parameter ``phi = 12 EI / (G As L^2)``
+    (``BeamElement.shear_parameter``; Friedman and Kosmatka 1993, "An improved two-node Timoshenko beam finite
+    element", Computers & Structures 47(3)). With ``phi = 0`` they are the Hermite cubics and their slopes.
+
+    By the reciprocal theorem the equivalent nodal loads (negative fixed-end reactions) of a member load are the
+    work of the load on these shapes: the integral of w(x) Nv(x) for transverse forces, m Npsi(a) for a moment at a.
+    """
+    xi = x / length
+    d = 1.0 + phi
+    nv = (
+        (2.0 * xi**3 - 3.0 * xi**2 - phi * xi + 1.0 + phi) / d,
+        length * (xi**3 - (2.0 + 0.5 * phi) * xi**2 + (1.0 + 0.5 * phi) * xi) / d,
+        (-2.0 * xi**3 + 3.0 * xi**2 + phi * xi) / d,
+        length * (xi**3 - (1.0 - 0.5 * phi) * xi**2 - 0.5 * phi * xi) / d,
+    )
+    npsi = (
+        6.0 * (xi**2 - xi) / (d * length),
+        (3.0 * xi**2 - (4.0 + phi) * xi + 1.0 + phi) / d,
+        -6.0 * (xi**2 - xi) / (d * length),
+        (3.0 * xi**2 - (2.0 - phi) * xi) / d,
+    )
+    return nv, npsi
+
+
+def _shear_parameter(element):
+    """Shear parameter of a beam element; zero for elements without one (trusses, nonlinear beams)."""
+    get = getattr(element, "shear_parameter", None)
+    return get() if get is not None else 0.0
+
+
+def _linear_load_equivalent(element, wx, wy, wx_end, wy_end, start, end):
+    """Work-equivalent local nodal loads [u_i, v_i, theta_i, u_j, v_j, theta_j] of a linearly varying axial and
+    transverse load on the relative span [start, end]. The transverse shapes are cubic and the load linear, so
+    3-point Gauss quadrature is exact."""
+    L = element.length
+    phi = _shear_parameter(element)
+    eq_local = np.zeros(6, dtype=float)
+    a = start * L
+    b = end * L
+    half_len = (b - a) / 2.0
+    mid = (a + b) / 2.0
+    for xi, w in zip(_GAUSS_POINTS, _GAUSS_WEIGHTS):
+        x = mid + half_len * xi
+        alpha = (xi + 1.0) / 2.0
+        cur_wx = wx + alpha * (wx_end - wx)
+        cur_wy = wy + alpha * (wy_end - wy)
+        nv, _ = bending_shape_functions(x, L, phi)
+        wt = w * half_len
+        eq_local[0] += wt * (1.0 - x / L) * cur_wx
+        eq_local[3] += wt * (x / L) * cur_wx
+        for k, dof in enumerate((1, 2, 4, 5)):
+            eq_local[dof] += wt * nv[k] * cur_wy
+    return eq_local
+
 
 class PointLoad:
     """
@@ -160,39 +224,10 @@ class DistributedLoad(ElementLoad):
         self._compute_equivalent_loads()
 
     def _compute_equivalent_loads(self):
-        """Compute work-equivalent nodal forces and moments via 3-point Gauss-Legendre quadrature."""
-        L = self.element.length
-        eq_local = np.zeros(6, dtype=float)
-        gp = [-np.sqrt(0.6), 0.0, np.sqrt(0.6)]
-        gw = [5.0 / 9.0, 8.0 / 9.0, 5.0 / 9.0]
-        a = self.start * L
-        b = self.end * L
-        half_len = (b - a) / 2.0
-        mid = (a + b) / 2.0
-
-        for xi, w in zip(gp, gw):
-            x = mid + half_len * xi
-            mu = x / L
-            alpha = (xi + 1.0) / 2.0
-            cur_wx = self.wx + alpha * (self.wx_end - self.wx)
-            cur_wy = self.wy + alpha * (self.wy_end - self.wy)
-
-            n_ax1 = 1.0 - mu
-            n_ax2 = mu
-
-            n_tr1 = 1.0 - 3.0 * mu**2 + 2.0 * mu**3
-            n_tr2 = x * (1.0 - mu)**2
-            n_tr3 = 3.0 * mu**2 - 2.0 * mu**3
-            n_tr4 = x * (mu**2 - mu)
-
-            wt = w * half_len
-            eq_local[0] += wt * n_ax1 * cur_wx
-            eq_local[1] += wt * n_tr1 * cur_wy
-            eq_local[2] += wt * n_tr2 * cur_wy
-            eq_local[3] += wt * n_ax2 * cur_wx
-            eq_local[4] += wt * n_tr3 * cur_wy
-            eq_local[5] += wt * n_tr4 * cur_wy
-
+        """Work-equivalent nodal loads with the element's exact (Timoshenko or Hermite) shapes."""
+        eq_local = _linear_load_equivalent(
+            self.element, self.wx, self.wy, self.wx_end, self.wy_end, self.start, self.end
+        )
         self._transform_and_store_equivalent_loads(eq_local)
 
 
@@ -238,25 +273,17 @@ class ElementPointLoad(ElementLoad):
         self._compute_equivalent_loads()
 
     def _compute_equivalent_loads(self):
-        """Compute fixed-end forces for a point load in local coordinates."""
+        """Work-equivalent nodal loads in local coordinates: the force does work on the transverse shapes, the
+        moment on the cross-section rotations of :func:`bending_shape_functions` (exact for Timoshenko beams)."""
         L = self.element.length
         a = self.x
         b = L - a
-
-        # Fixed-end forces for a point load in local coordinates
-        FAx = (self.px * b) / L
-        FAy = (self.py * b**2 * (3 * a + b)) / L**3
-        MAz = (self.py * a * b**2) / L**2
-        FBx = (self.px * a) / L
-        FBy = (self.py * a**2 * (a + 3 * b)) / L**3
-        MBz = -(self.py * a**2 * b) / L**2
-
-        # Add moment contributions at nodes
-        MAz += (self.mz * b) / L
-        MBz += (self.mz * a) / L
-
-        eq_local = np.array([FAx, FAy, MAz, FBx, FBy, MBz])
-
+        nv, npsi = bending_shape_functions(a, L, _shear_parameter(self.element))
+        eq_local = np.zeros(6, dtype=float)
+        eq_local[0] = (self.px * b) / L
+        eq_local[3] = (self.px * a) / L
+        for k, dof in enumerate((1, 2, 4, 5)):
+            eq_local[dof] = self.py * nv[k] + self.mz * npsi[k]
         self._transform_and_store_equivalent_loads(eq_local)
 
 
@@ -294,26 +321,6 @@ class TriangularLoad(ElementLoad):
         self._compute_equivalent_loads()
 
     def _compute_equivalent_loads(self):
-        """Compute equivalent local forces for trapezoidally distributed loads."""
-        L = self.element.length
-        eq_local = np.zeros(6)
-
-        # Axial forces (trapezoidal)
-        eq_local[0] += (L / 6) * (2 * self.wx1 + self.wx2)
-        eq_local[3] += (L / 6) * (self.wx1 + 2 * self.wx2)
-
-        # Transverse forces (trapezoidal), using superposition
-        # 1. Uniformly distributed load part (wy1)
-        eq_local[1] += self.wy1 * L / 2
-        eq_local[2] += self.wy1 * L**2 / 12
-        eq_local[4] += self.wy1 * L / 2
-        eq_local[5] -= self.wy1 * L**2 / 12
-
-        # 2. Uniformly varying load part (delta from wy1 to wy2)
-        wy_delta = self.wy2 - self.wy1
-        eq_local[1] += (3 * wy_delta * L) / 20
-        eq_local[2] += (wy_delta * L**2) / 30
-        eq_local[4] += (7 * wy_delta * L) / 20
-        eq_local[5] -= (wy_delta * L**2) / 20
-
+        """Work-equivalent nodal loads with the element's exact (Timoshenko or Hermite) shapes, over the full span."""
+        eq_local = _linear_load_equivalent(self.element, self.wx1, self.wy1, self.wx2, self.wy2, 0.0, 1.0)
         self._transform_and_store_equivalent_loads(eq_local)

@@ -15,7 +15,7 @@ Documentation: [![Documentation Status](https://readthedocs.org/projects/fem2d/b
 ## Features
 
 - **Element Library:**
-  - **Beam Element:** Elastic 2D beam elements supporting both classical Euler-Bernoulli and Timoshenko beam formulations with shear deformation ($\beta_s = \frac{12EI}{GA_s L^2}$). Supports uniform and varying member loads, moment releases (hinges at either end or general 3-DOF releases), and rotational/translational mass.
+  - **Beam Element:** Elastic 2D beam elements supporting both classical Euler-Bernoulli and Timoshenko beam formulations with shear deformation ($\beta_s = \frac{12EI}{GA_s L^2}$). Supports uniform and varying member loads (equivalent nodal loads from the exact Euler-Bernoulli or Timoshenko shapes, so fixed-end forces are exact with shear deformation too), moment releases (hinges at either end or general 3-DOF releases), and rotational/translational mass.
   - **BeamWithHingesElement:** Beam with optional moment releases at either end (retained for backward compatibility).
   - **Truss Element:** Pin-jointed bar elements with axial stiffness only. The same `TrussElement` class is used for linear and corotational geometrically-nonlinear analyses.
   - **Spring Element:** 2D elastic spring elements with customizable axial stiffness.

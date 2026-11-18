@@ -82,6 +82,25 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
 __all__ = ["model_from_core", "model_to_core", "result_to_core", "solve_combinations_and_envelope"]
 
 
+def _apply_mass_modifier(element: Any, base_section: Any, modifiers: Dict[str, float]) -> None:
+    """Give a beam element the mass of struct_core's modifiers, as SAP2000 and ETABS define them.
+
+    The mass modifier scales all the member's mass (translational and rotational); the A modifier scales the axial
+    stiffness only. The element's mass is rho x (its area) per length plus ``element.mass``, and its rotational
+    inertia rho x I: the element gets a copy of its material with rho x mass modifier, and ``element.mass`` the
+    difference rho x mass x A0 x (1 - A modifier), so that its mass per length is rho x A0 x mass (A0: unmodified).
+    """
+    mass_mod = float(modifiers.get("mass", 1.0))
+    area_mod = float(modifiers.get("A", 1.0))
+    if mass_mod == 1.0 and area_mod == 1.0:
+        return
+    rho = base_section.material.rho
+    if mass_mod != 1.0:
+        element.material = copy.copy(element.material)
+        element.material.rho = rho * mass_mod
+    element.mass += rho * mass_mod * base_section.A * (1.0 - area_mod)
+
+
 # ============================================================================
 # model_from_core: struct_core -> fem2d.Structure
 # ============================================================================
@@ -281,15 +300,13 @@ def model_from_core(
             if elem_mods or (flexural_stiffness_modifiers and elem_schema.id in flexural_stiffness_modifiers):
                 sec = copy.copy(sec)
                 if elem_mods:
+                    # struct_core keys (STIFFNESS_MODIFIER_KEYS); in-plane bending is about local axis 3 (I3) with
+                    # shear along local axis 2 (As2); the out-of-plane keys (As3, J, I2) do not apply in 2D
                     if "A" in elem_mods:
                         sec.A *= float(elem_mods["A"])
-                    if "I" in elem_mods:
-                        sec.I *= float(elem_mods["I"])
-                    elif "I3" in elem_mods:
+                    if "I3" in elem_mods:
                         sec.I *= float(elem_mods["I3"])
-                    if "As" in elem_mods and hasattr(sec, "As"):
-                        sec.As *= float(elem_mods["As"])
-                    elif "As2" in elem_mods and hasattr(sec, "As"):
+                    if "As2" in elem_mods and sec.As is not None:
                         sec.As *= float(elem_mods["As2"])
                 if flexural_stiffness_modifiers and elem_schema.id in flexural_stiffness_modifiers:
                     sec.I *= float(flexural_stiffness_modifiers[elem_schema.id])
@@ -318,6 +335,8 @@ def model_from_core(
                 releases_i=releases_i_2d,
                 releases_j=releases_j_2d,
             )
+            if elem_mods:
+                _apply_mass_modifier(elem_obj, sections_map[elem_schema.section_id], elem_mods)
         elif elem_type == "spring":
             nonzero = [(name, val) for name, val in [("kx", elem_schema.kx), ("ky", elem_schema.ky), ("kz", elem_schema.kz)] if val > 0]
             if not nonzero:

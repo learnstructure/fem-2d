@@ -216,6 +216,27 @@ class BeamElement(ElementBase):
                 k_new[r_i, r_j] = K_r_star[i_idx, j_idx]
         return k_new
 
+    def shear_parameter(self) -> float:
+        """Dimensionless shear deformation constant beta_s = 12 E I / (G As L^2) (Eq. 9.60); zero without shear
+        deformation. The stiffness matrix and the equivalent nodal loads of member loads (fem2d.loads) use it."""
+        E = self.material.E if self.material is not None else 1.0
+        A = self.area
+        L = self.length
+        if not self.include_shear_deformation or L <= 0.0:
+            return 0.0
+        as_val = getattr(self.section, "As", None)
+        if as_val is None:
+            fs_val = getattr(self.section, "fs", None)
+            if fs_val is not None and fs_val > 0.0 and A is not None and A > 0.0:
+                as_val = A / fs_val
+        g_val = getattr(self.material, "G", None)
+        if g_val is None and self.material is not None and hasattr(self.material, "E"):
+            nu_val = getattr(self.material, "nu", 0.3)
+            g_val = E / (2.0 * (1.0 + nu_val)) if nu_val != -1.0 else 0.0
+        if as_val is not None and as_val > 0.0 and g_val is not None and g_val > 0.0:
+            return (12.0 * E * self.inertia) / (g_val * as_val * L**2)
+        return 0.0
+
     def _unreleased_local_stiffness(self) -> np.ndarray:
         """
         Return the 6x6 element stiffness matrix in local coordinates without releases.
@@ -226,22 +247,7 @@ class BeamElement(ElementBase):
         L = self.length
 
         EA_L = E * A / L
-
-        # Dimensionless shear deformation constant beta_s = 12*E*I / (G*As*L^2) (Eq. 9.60)
-        beta_s = 0.0
-        if self.include_shear_deformation and L > 0.0:
-            as_val = getattr(self.section, "As", None)
-            if as_val is None:
-                fs_val = getattr(self.section, "fs", None)
-                if fs_val is not None and fs_val > 0.0 and A is not None and A > 0.0:
-                    as_val = A / fs_val
-            g_val = getattr(self.material, "G", None)
-            if g_val is None and self.material is not None and hasattr(self.material, "E"):
-                nu_val = getattr(self.material, "nu", 0.3)
-                g_val = E / (2.0 * (1.0 + nu_val)) if nu_val != -1.0 else 0.0
-
-            if as_val is not None and as_val > 0.0 and g_val is not None and g_val > 0.0:
-                beta_s = (12.0 * E * I) / (g_val * as_val * L**2)
+        beta_s = self.shear_parameter()
 
         factor = 1.0 + beta_s
         k12 = 12.0 * E * I / (L**3 * factor)
