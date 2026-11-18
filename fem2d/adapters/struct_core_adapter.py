@@ -164,6 +164,12 @@ def model_from_core(
     else:
         model = model_or_project
 
+    if getattr(model, "shell_elements", None):
+        raise ValueError(
+            f"fem2d is a plane-frame solver and does not support shell elements; the model has "
+            f"{len(model.shell_elements)}. Analyze it with fem3d."
+        )
+
     if validate:
         validate_structural_model(model, raise_error=True)
 
