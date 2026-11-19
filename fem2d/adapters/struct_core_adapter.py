@@ -378,10 +378,32 @@ def model_from_core(
                 gravity_accel=gravity_accel,
                 units=active_units,
             )
+            ms_obj = ms_res.mass_source
+            include_elem_mass = bool(getattr(ms_obj, "include_element_mass", True))
+            include_added_mass = bool(getattr(ms_obj, "include_added_mass", True))
+
+            if not include_elem_mass:
+                for el in structure.elements.values():
+                    if getattr(el, "material", None) is not None:
+                        mat_zero = copy.copy(el.material)
+                        mat_zero.rho = 0.0
+                        el.material = mat_zero
+                    if getattr(el, "section", None) is not None:
+                        sec_zero = copy.copy(el.section)
+                        if getattr(sec_zero, "material", None) is not None:
+                            smat_zero = copy.copy(sec_zero.material)
+                            smat_zero.rho = 0.0
+                            sec_zero.material = smat_zero
+                        el.section = sec_zero
+                    if hasattr(el, "mass"):
+                        el.mass = 0.0
+
             for nid, m_vec in ms_res.nodal_masses.items():
                 if nid in structure.nodes:
+                    node_obj = structure.nodes[nid]
                     m_val = m_vec[0] if isinstance(m_vec, (list, tuple)) else float(m_vec)
-                    structure.nodes[nid].set_mass(mass=m_val)
+                    inertia_val = node_obj.inertia if include_added_mass else 0.0
+                    node_obj.set_mass(mass=m_val, inertia=inertia_val)
 
             for eid, m_extra in ms_res.element_masses.items():
                 if eid in structure.elements:

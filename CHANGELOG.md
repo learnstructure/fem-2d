@@ -26,6 +26,10 @@ All notable changes to `fem2d` are recorded in this file. The format follows
   do not apply in 2D). The non-canonical keys `I` and `As` are no longer read; struct_core now refuses them.
 
 ### Fixed
+- `model_from_core` with a `MassSource`: preserved `Node.inertia` when `include_added_mass=True` (previously reset to
+  zero when `set_mass(mass=...)` was called) and cleared both nodal mass and inertia when `include_added_mass=False`;
+  when `include_element_mass=False`, removed frame and truss element self-mass (material density copy and mass-modifier
+  adjustment) so element self-mass is not included in `M`. Test: `tests/test_mass_source_adapter.py`.
 - Member loads on Timoshenko beams (`include_shear_deformation=True`): `DistributedLoad`, `TriangularLoad`, and
   `ElementPointLoad` computed their equivalent nodal loads with Euler-Bernoulli shape functions, exact only for
   full-span uniform loads. They now use the exact Timoshenko shapes. Kassimali (2021), Matrix Analysis of Structures,
