@@ -339,7 +339,7 @@ effects, no global state. Naming follows `<artefact>_<direction>_<target>`:
 
 | Function | Direction | Purpose |
 | --- | --- | --- |
-| `model_from_core` | `struct_core → fem2d` | Build a `fem2d.Structure` from a `struct_core.StructuralModel` (or `Project`), supporting individual load cases, factored load combinations, and automatic member self-weight calculation via `struct_load`. |
+| `model_from_core` | `struct_core → fem2d` | Build a `fem2d.Structure` from a `struct_core.StructuralModel` (or `Project`), supporting individual load cases, factored load combinations, and automatic member self-weight calculation via `struct_load`. Refuses models with shell elements (`ValueError`), because `fem2d` is a plane-frame solver; analyze shell models with `fem3d`. |
 | `model_to_core`   | `fem2d → struct_core` | Build a `struct_core.StructuralModel` from a `fem2d.Structure` / `SimpleFrame` / `Results`. |
 | `result_to_core`  | `fem2d → struct_core` | Build a `struct_core.AnalysisResult` from an analyzed `fem2d` model. Member internal forces (P, V, M) are reported at the 11 normalized `struct_core.analysis_result.STANDARD_STATIONS` (0, 0.1, …, 1), including the effect of uniform, trapezoidal, and concentrated member loads, so midspan moments reach design. |
 

@@ -7,7 +7,7 @@ All notable changes to `fem2d` are recorded in this file. The format follows
 ## [Unreleased]
 
 ### Added
-- `model_from_core` refuses models with shell elements: fem2d is a plane-frame solver.
+- `model_from_core` refuses models with shell elements (`tests/test_shell_refusal.py`): fem2d is a plane-frame solver.
 - `fem2d.loads.bending_shape_functions`: the exact interpolation (deflection and cross-section rotation) of a
   two-node Timoshenko beam, which reduces to the Hermite cubics without shear deformation.
 - `BeamElement.shear_parameter()`: the shear deformation constant beta_s, used by both the stiffness matrix and the
