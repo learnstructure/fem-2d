@@ -7,6 +7,10 @@ All notable changes to `fem2d` are recorded in this file. The format follows
 ## [Unreleased]
 
 ### Added
+- `BeamElement.roll_angle`: 2D beam elements now accept the two in-plane orientations (`0` and `180` degrees; other
+  angles raise `ValueError`). For `180` degrees, local axes 2 and 3 are reversed so stiffness and mass are unchanged,
+  local-y member loads act in the opposite global direction, and internal shear `V2` and moment `M3` change sign.
+  `model_from_core` and `model_to_core` preserve `roll_angle`. Test: `tests/test_roll_angle.py`.
 - `model_from_core` refuses models with shell elements (`tests/test_shell_refusal.py`): fem2d is a plane-frame solver.
 - `fem2d.loads.bending_shape_functions`: the exact interpolation (deflection and cross-section rotation) of a
   two-node Timoshenko beam, which reduces to the Hermite cubics without shear deformation.

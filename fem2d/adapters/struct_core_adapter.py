@@ -340,6 +340,7 @@ def model_from_core(
                 include_shear_deformation=elem_shear,
                 releases_i=releases_i_2d,
                 releases_j=releases_j_2d,
+                roll_angle=float(getattr(elem_schema, "roll_angle", 0.0) or 0.0),
             )
             if elem_mods:
                 _apply_mass_modifier(elem_obj, sections_map[elem_schema.section_id], elem_mods)
@@ -421,10 +422,11 @@ def model_from_core(
             gy_end = float(gy if gy_e is None else gy_e)
             c = getattr(elem_obj, "cos", 1.0)
             s = getattr(elem_obj, "sin", 0.0)
+            r = getattr(elem_obj, "_roll_sign", 1.0)
             w_axial = gx * c + gy * s
-            w_trans = -gx * s + gy * c
+            w_trans = r * (-gx * s + gy * c)
             w_axial_end = gx_end * c + gy_end * s
-            w_trans_end = -gx_end * s + gy_end * c
+            w_trans_end = r * (-gx_end * s + gy_end * c)
 
         st = float(getattr(dl_schema, "start", 0.0) or 0.0)
         en = float(getattr(dl_schema, "end", 1.0) or 1.0)
@@ -437,6 +439,25 @@ def model_from_core(
             start=st,
             end=en,
         )
+
+    def _to_fem_element_point_load(elem_obj, epl_schema, factor: float = 1.0) -> ElementPointLoad:
+        """Map a struct_core ElementPointLoad onto fem2d's local (px, py, mz) components."""
+        pos = float(getattr(epl_schema, "position", 0.0)) * elem_obj.length
+        if getattr(epl_schema, "is_local", False):
+            px = float(getattr(epl_schema, "fx", 0.0)) * factor
+            py = float(getattr(epl_schema, "fy", 0.0)) * factor
+            mz = float(getattr(epl_schema, "mz", 0.0)) * factor
+        else:
+            gx = float(getattr(epl_schema, "fx", 0.0)) * factor
+            gy = float(getattr(epl_schema, "fy", 0.0)) * factor
+            gmz = float(getattr(epl_schema, "mz", 0.0)) * factor
+            c = getattr(elem_obj, "cos", 1.0)
+            s = getattr(elem_obj, "sin", 0.0)
+            r = getattr(elem_obj, "_roll_sign", 1.0)
+            px = gx * c + gy * s
+            py = r * (-gx * s + gy * c)
+            mz = r * gmz
+        return ElementPointLoad(element=elem_obj, px=px, py=py, mz=mz, x=pos)
 
     def _apply_case_self_weight_2d(case_id: str, factor: float = 1.0):
         if not include_self_weight:
@@ -512,20 +533,7 @@ def model_from_core(
             for epl_schema in getattr(lc, "element_point_loads", []):
                 if epl_schema.element_id in structure.elements:
                     elem_obj = structure.elements[epl_schema.element_id]
-                    pos = float(getattr(epl_schema, "position", 0.0)) * elem_obj.length
-                    if getattr(epl_schema, "is_local", False):
-                        px = float(getattr(epl_schema, "fx", 0.0)) * factor
-                        py = float(getattr(epl_schema, "fy", 0.0)) * factor
-                        mz = float(getattr(epl_schema, "mz", 0.0)) * factor
-                    else:
-                        gx = float(getattr(epl_schema, "fx", 0.0)) * factor
-                        gy = float(getattr(epl_schema, "fy", 0.0)) * factor
-                        mz = float(getattr(epl_schema, "mz", 0.0)) * factor
-                        c = getattr(elem_obj, "cos", 1.0)
-                        s = getattr(elem_obj, "sin", 0.0)
-                        px = gx * c + gy * s
-                        py = -gx * s + gy * c
-                    structure.add_load(ElementPointLoad(element=elem_obj, px=px, py=py, mz=mz, x=pos))
+                    structure.add_load(_to_fem_element_point_load(elem_obj, epl_schema, factor))
             if getattr(lc, "include_self_weight", False):
                 _apply_case_self_weight_2d(lc.id, factor=factor)
     else:
@@ -573,20 +581,7 @@ def model_from_core(
             for epl_schema in getattr(target_load_case, "element_point_loads", []):
                 if epl_schema.element_id in structure.elements:
                     elem_obj = structure.elements[epl_schema.element_id]
-                    pos = float(getattr(epl_schema, "position", 0.0)) * elem_obj.length
-                    if getattr(epl_schema, "is_local", False):
-                        px = float(getattr(epl_schema, "fx", 0.0))
-                        py = float(getattr(epl_schema, "fy", 0.0))
-                        mz = float(getattr(epl_schema, "mz", 0.0))
-                    else:
-                        gx = float(getattr(epl_schema, "fx", 0.0))
-                        gy = float(getattr(epl_schema, "fy", 0.0))
-                        mz = float(getattr(epl_schema, "mz", 0.0))
-                        c = getattr(elem_obj, "cos", 1.0)
-                        s = getattr(elem_obj, "sin", 0.0)
-                        px = gx * c + gy * s
-                        py = -gx * s + gy * c
-                    structure.add_load(ElementPointLoad(element=elem_obj, px=px, py=py, mz=mz, x=pos))
+                    structure.add_load(_to_fem_element_point_load(elem_obj, epl_schema))
 
             if getattr(target_load_case, "include_self_weight", False):
                 _apply_case_self_weight_2d(target_load_case.id, factor=1.0)
@@ -800,6 +795,7 @@ def model_to_core(
                     release_j=rel_j_6d,
                     is_nonlinear=bool(getattr(elem, "geometric_nonlinear", False)),
                     include_shear_deformation=bool(getattr(elem, "include_shear_deformation", False)),
+                    roll_angle=float(getattr(elem, "roll_angle", 0.0) or 0.0),
                 )
             )
         elif cls_name in ("TrussElement", "TrussElementNL"):

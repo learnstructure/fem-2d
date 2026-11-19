@@ -150,19 +150,38 @@ class ElementLoad:
             self.element.add_equivalent_load(eq_local)
             return
 
-        c = self.element.cos
-        s = self.element.sin
-        T = np.array(
-            [
-                [c, -s, 0, 0, 0, 0],
-                [s, c, 0, 0, 0, 0],
-                [0, 0, 1, 0, 0, 0],
-                [0, 0, 0, c, -s, 0],
-                [0, 0, 0, s, c, 0],
-                [0, 0, 0, 0, 0, 1],
-            ]
-        )
-        eq_global = T @ eq_local
+        if hasattr(self.element, "transformation_matrix"):
+            T_loc = self.element.transformation_matrix()
+            if T_loc.shape == (6, 6):
+                eq_global = T_loc.T @ eq_local
+            else:
+                c = self.element.cos
+                s = self.element.sin
+                T = np.array(
+                    [
+                        [c, -s, 0, 0, 0, 0],
+                        [s, c, 0, 0, 0, 0],
+                        [0, 0, 1, 0, 0, 0],
+                        [0, 0, 0, c, -s, 0],
+                        [0, 0, 0, s, c, 0],
+                        [0, 0, 0, 0, 0, 1],
+                    ]
+                )
+                eq_global = T @ eq_local
+        else:
+            c = self.element.cos
+            s = self.element.sin
+            T = np.array(
+                [
+                    [c, -s, 0, 0, 0, 0],
+                    [s, c, 0, 0, 0, 0],
+                    [0, 0, 1, 0, 0, 0],
+                    [0, 0, 0, c, -s, 0],
+                    [0, 0, 0, s, c, 0],
+                    [0, 0, 0, 0, 0, 1],
+                ]
+            )
+            eq_global = T @ eq_local
         if not hasattr(self.element, "eq_load"):
             self.element.eq_load = np.zeros(6)
         self.element.eq_load += eq_global

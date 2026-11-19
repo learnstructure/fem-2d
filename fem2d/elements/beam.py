@@ -56,6 +56,7 @@ class BeamElement(ElementBase):
         releases_i: Optional[List[bool]] = None,
         releases_j: Optional[List[bool]] = None,
         include_shear_deformation: bool = False,
+        roll_angle: float = 0.0,
     ):
         """
         Initialize a BeamElement.
@@ -130,6 +131,19 @@ class BeamElement(ElementBase):
         self.geometric_nonlinear = geometric_nonlinear
         self.include_shear_deformation = bool(include_shear_deformation)
 
+        # In-plane orientation: 0 deg (default) or 180 deg (local axes 2 and 3 flipped)
+        norm_roll = float(roll_angle) % 360.0
+        if abs(norm_roll) <= 1e-6 or abs(norm_roll - 360.0) <= 1e-6:
+            self.roll_angle = 0.0
+            self._roll_sign = 1.0
+        elif abs(norm_roll - 180.0) <= 1e-6:
+            self.roll_angle = 180.0
+            self._roll_sign = -1.0
+        else:
+            raise ValueError(
+                f"Element {eid!r}: fem2d supports roll_angle of 0 or 180 degrees in 2D, got {roll_angle}."
+            )
+
         # Releases: 3 DOFs per node [u1, u2, theta] (axial, transverse, rotation)
         self.releases_i = list(releases_i) if releases_i is not None else [False, False, False]
         self.releases_j = list(releases_j) if releases_j is not None else [False, False, False]
@@ -160,6 +174,28 @@ class BeamElement(ElementBase):
         dy = self.node_j.y - self.node_i.y
         self.L0 = np.hypot(dx, dy)
         self.alpha0 = np.arctan2(dy, dx)
+
+    def transformation_matrix(self, dof_per_node=3):
+        """Return the 6x6 transformation matrix from global to local coordinates.
+
+        For ``roll_angle == 180.0``, local axes 2 and 3 are negated so the local
+        frame stays right-handed. The global stiffness and mass matrices are
+        unchanged; local-y member loads and local V and M change sign.
+        """
+        c = self.cos
+        s = self.sin
+        r = self._roll_sign
+        return np.array(
+            [
+                [c, s, 0.0, 0.0, 0.0, 0.0],
+                [-r * s, r * c, 0.0, 0.0, 0.0, 0.0],
+                [0.0, 0.0, r, 0.0, 0.0, 0.0],
+                [0.0, 0.0, 0.0, c, s, 0.0],
+                [0.0, 0.0, 0.0, -r * s, r * c, 0.0],
+                [0.0, 0.0, 0.0, 0.0, 0.0, r],
+            ],
+            dtype=float,
+        )
 
     def _apply_releases(self, k: np.ndarray) -> np.ndarray:
         """
@@ -372,8 +408,9 @@ class BeamElement(ElementBase):
 
             beta = alpha - self.alpha0
 
-            theta1_bar = u_i[2] - beta
-            theta2_bar = u_j[2] - beta
+            r = self._roll_sign
+            theta1_bar = r * (u_i[2] - beta)
+            theta2_bar = r * (u_j[2] - beta)
             u2 = L - self.L0
 
             d_local = np.array([0.0, 0.0, theta1_bar, u2, 0.0, theta2_bar])
@@ -443,7 +480,7 @@ class BeamElement(ElementBase):
 
             c = np.cos(alpha)
             s = np.sin(alpha)
-            R = np.array([[c, -s, 0], [s, c, 0], [0, 0, 1]])
+            R = np.array([[c, -r * s, 0.0], [s, r * c, 0.0], [0.0, 0.0, r]])
             T = np.zeros((6, 6))
             T[:3, :3] = R
             T[3:, 3:] = R
