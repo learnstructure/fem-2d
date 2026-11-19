@@ -65,7 +65,7 @@ def _cantilever_2d(
 
 def test_mass_source_preserves_nodal_inertia_and_counts_added_mass_once():
     # Node 2: added mass = 5000 kg (5.0 tonnes), added inertia = 1200 kg*m^2 (1.2 tonne*m^2)
-    # Plus point load SDL = 98.0665 kN -> 10.0 tonnes -> total nodal mass = 15.0 tonnes
+    # Plus point load SDL = 98.0665 kN (10.0 tonnes) + half of 4.0 tonne distributed SDL (2.0 tonnes) = 17.0 tonnes
     ms = MassSource(
         id="MS1",
         include_element_mass=False,
@@ -76,13 +76,13 @@ def test_mass_source_preserves_nodal_inertia_and_counts_added_mass_once():
     st = model_from_core(proj)
 
     n2 = st.nodes["2"]
-    assert n2.mass == pytest.approx(15.0, rel=1e-12)
+    assert n2.mass == pytest.approx(17.0, rel=1e-12)
     assert n2.inertia == pytest.approx(1.2, rel=1e-12)
 
     st.number_dofs()
     st.apply_boundary_conditions()
     _, M_ff = st.get_reduced_matrices(lumped=True, include_rotational_inertia=False)
-    # Free DOFs at node 2: [ux, uy, rz]. Element has 4.0 tonnes distributed SDL -> 2.0 tonnes at node 2.
+    # Free DOFs at node 2: [ux, uy, rz]
     assert np.diag(M_ff) == pytest.approx([17.0, 17.0, 1.2], rel=1e-12)
 
 
@@ -97,7 +97,7 @@ def test_mass_source_exclude_added_mass_excludes_nodal_mass_and_inertia():
     st = model_from_core(proj)
 
     n2 = st.nodes["2"]
-    assert n2.mass == pytest.approx(10.0, rel=1e-12)
+    assert n2.mass == pytest.approx(12.0, rel=1e-12)
     assert n2.inertia == pytest.approx(0.0, abs=1e-15)
 
     st.number_dofs()
